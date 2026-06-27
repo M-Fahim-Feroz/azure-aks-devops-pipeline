@@ -182,7 +182,7 @@ jobs:
         run: az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Build & Push API
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: api/Dockerfile
@@ -194,7 +194,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & Push Worker
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: api/Dockerfile
