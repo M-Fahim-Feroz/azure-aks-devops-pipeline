@@ -1,5 +1,9 @@
 # DevOps Report
 
+> **Deployment Status:** ✅ End-to-end deployment successfully completed through GitHub Actions.
+> All 5 pipeline jobs passed. FastAPI public endpoint responded with `{"Alperen":"Cubuk"}`.
+> Prometheus/Grafana monitoring stack confirmed operational. Deployment proof in `docs/screenshots/`.
+
 ## Technologies Used
 - **FastAPI**: For building the REST API, chosen for its speed and auto-docs.
 - **Celery**: Handles background tasks like fetching data, using Redis as broker.

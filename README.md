@@ -1,178 +1,297 @@
 # Azure AKS DevOps Pipeline
 
-A production-style DevOps project that provisions Azure infrastructure, builds and pushes Docker images, deploys a FastAPI microservice stack to AKS, and validates the deployment through an automated GitHub Actions pipeline.
+A production-style, end-to-end DevOps portfolio project that provisions Azure infrastructure with Terraform, builds and pushes Docker images to ACR, deploys a FastAPI microservice stack to Azure Kubernetes Service, automates deployment with Ansible, and validates the rollout through a fully automated GitHub Actions pipeline with Prometheus and Grafana observability.
+
+> **Deployment Status:** ✅ Successfully deployed and smoke-tested. Public FastAPI endpoint returned `{"Alperen":"Cubuk"}`.
+
+---
 
 ## Overview
 
-This project demonstrates an end-to-end DevOps workflow on Azure Kubernetes Service (AKS). It showcases modern application delivery by integrating infrastructure automation, container orchestration, background task processing, monitoring, and automated CI/CD smoke testing.
+This project demonstrates a complete production-style DevOps workflow on Azure. It integrates infrastructure automation, container orchestration, background task processing, monitoring, and automated CI/CD smoke testing — all driven from a single GitHub Actions pipeline.
+
+Key highlights:
+- **Zero manual Azure steps** after secrets are configured — the pipeline provisions everything
+- **Ansible-driven Kubernetes deployment** including Helm-based monitoring stack
+- **Live smoke test** validates the public FastAPI endpoint at the end of every run
+- **kube-prometheus-stack** provides cluster-wide Prometheus metrics and Grafana dashboards
+
+---
 
 ## Architecture
 
-* **FastAPI** provides the REST API and Web UI.
-* **Celery** worker handles background jobs asynchronously.
-* **Redis** is used as the message broker for Celery.
-* **PostgreSQL** stores persistent application data.
-* **Docker** packages the microservices into consistent containers.
-* **Azure Container Registry (ACR)** securely stores the Docker images.
-* **Terraform** automatically provisions all necessary Azure infrastructure.
-* **Azure Kubernetes Service (AKS)** runs the containerized workloads in the cloud.
-* **Ansible** applies the Kubernetes manifests and monitoring stack automation.
-* **Prometheus and Grafana** provide observability and metrics.
-* **GitHub Actions** orchestrates the entire CI/CD lifecycle.
+```
+Developer push to GitHub
+        │
+        ▼
+GitHub Actions CI/CD
+        │
+        ├─ 1. Secret Validation (preflight check)
+        ├─ 2. Build & Test (lint, security scan, unit tests)
+        │
+        ├─ 3. Terraform Provision
+        │      └─ Azure Resource Group
+        │      └─ Azure Virtual Network / Subnet
+        │      └─ Azure Container Registry (ACR)
+        │      └─ Azure Kubernetes Service (AKS)
+        │      └─ Azure Storage Account / File Share
+        │
+        ├─ 4. Docker Build & Push → ACR
+        │      └─ fastapi-api image
+        │      └─ fastapi-worker image
+        │
+        ├─ 5. AKS Deploy (Ansible Playbook)
+        │      └─ Apply Kubernetes manifests (namespace, secrets, configmaps)
+        │      └─ Deploy FastAPI, Worker, PostgreSQL, Redis
+        │      └─ Install kube-prometheus-stack via Helm
+        │
+        └─ 6. Smoke Test
+               └─ Wait for LoadBalancer IP
+               └─ curl public endpoint → validate JSON response
+```
+
+---
 
 ## Tech Stack
 
-* Python / FastAPI
-* Celery
-* Redis
-* PostgreSQL
-* Docker
-* Docker Compose
-* GitHub Actions
-* Terraform
-* Azure
-* Azure Container Registry (ACR)
-* Azure Kubernetes Service (AKS)
-* Kubernetes
-* Ansible
-* Helm
-* Prometheus
-* Grafana
-* Pytest
-* Flake8
-* Bandit
+| Layer | Technology |
+|---|---|
+| Cloud | Azure (AKS, ACR, Storage, VNet) |
+| Infrastructure as Code | Terraform |
+| CI/CD | GitHub Actions |
+| Containerization | Docker |
+| Orchestration | Kubernetes |
+| Deployment Automation | Ansible, Helm |
+| API Framework | FastAPI (Python) |
+| Background Tasks | Celery |
+| Message Broker | Redis |
+| Database | PostgreSQL |
+| Monitoring | Prometheus, Grafana (kube-prometheus-stack) |
+| Code Quality | Flake8, Bandit, Pytest |
 
-## Repository Structure
-
-```text
-.
-├── .github/workflows/      # GitHub Actions CI/CD pipeline
-├── ansible/                # Ansible playbooks for K8s & Helm deployments
-├── api/                    # FastAPI application code and tests
-├── frontend/               # Static Web UI files
-├── img/                    # Architecture and validation screenshots
-├── infra/                  # Terraform Azure infrastructure code
-├── k8s/                    # Kubernetes manifests (Deployments, Services, ConfigMaps)
-├── worker/                 # Celery worker code
-├── AZURE_DEPLOYMENT.md     # Detailed Azure setup guide
-├── devops_report.md        # Technical architecture report
-├── docker-compose.yml      # Local development setup
-├── README.md               # Project documentation
-└── screenshot_instructions.md
-```
+---
 
 ## CI/CD Pipeline
 
-The `.github/workflows/aks-cicd.yml` workflow orchestrates the following stages on every push to the `main` branch:
+The `.github/workflows/aks-cicd.yml` workflow runs on every push to `main`.
 
-1. **Build & Test:** Runs Python linting (`flake8`), security scanning (`bandit`), and unit testing (`pytest`).
-2. **Docker Build & Push:** Builds the multi-stage Docker images for the API and Worker, then pushes them to the dynamically provisioned Azure Container Registry.
-3. **Infrastructure Provisioning:** Executes `terraform apply` to ensure the Azure Virtual Network, ACR, and AKS cluster are running.
-4. **Configuration & Deployment:** Uses Ansible to apply Kubernetes ConfigMaps, Secrets, Deployments, and the Prometheus/Grafana Helm charts.
-5. **Force Restart:** Bounces the Kubernetes deployments to ensure the newest ACR images are pulled.
-6. **Smoke Test:** Waits for the LoadBalancer IP and executes a live health check `curl` against the public endpoint to validate the rollout.
+### Jobs
 
-## Infrastructure Automation
+| # | Job | Description |
+|---|---|---|
+| 1 | `build-and-test` | Secret preflight validation, Python lint (Flake8), security scan (Bandit), unit tests (Pytest) |
+| 2 | `provision-infra` | Azure Login, Terraform Init, Terraform Apply — provisions AKS, ACR, VNet, Storage |
+| 3 | `docker-build` | ACR login, multi-stage Docker build, push `api` and `worker` images with commit-SHA tags |
+| 4 | `deploy-app` | Set AKS context, fetch storage key, create Kubernetes secrets, run Ansible playbook, force-restart deployments |
+| 5 | `smoke-test` | Wait for pods, retrieve LoadBalancer IP, curl endpoint, validate JSON response |
 
-> [!WARNING]
-> Terraform state management must be configured before relying on GitHub Actions for repeated apply/destroy operations. For this demo, use a controlled single deployment and verify resources in Azure Portal before cleanup.
+All credentials are stored as **GitHub Actions repository secrets** and are never logged or committed.
 
-Terraform (`infra/`) provisions the following resources in Azure:
-* **Resource Group**
-* **Virtual Network & Subnets**
-* **Azure Container Registry (ACR)**
-* **Azure Kubernetes Service (AKS)** cluster
-* **Azure Storage Account & File Share** (used for PostgreSQL persistent storage)
+---
 
-## Kubernetes Deployment
+## Infrastructure Provisioned
 
-The K8s manifests (`k8s/`) handle the deployment of the application components:
-* **Deployments:** `fastapi-api` and `fastapi-worker`.
-* **StatefulSet:** `postgres` database with a PersistentVolumeClaim mapped to Azure Files.
-* **Services:** Internal ClusterIP for Redis/Postgres and a public `LoadBalancer` for the FastAPI UI.
-* **ConfigMap & Secret:** Injected dynamically by Ansible and GitHub Actions to keep credentials secure.
-* **Probes:** Liveness and Readiness probes ensure traffic only routes to healthy API pods.
-* **Resource Limits:** CPU and memory requests/limits are enforced.
+Terraform (`infra/`) provisions the following on Azure (Southeast Asia region):
+
+- **Resource Group:** `azure-aks-devops-rg`
+- **Virtual Network:** `fastapi-vnet` with node subnet
+- **Azure Container Registry:** `fahimaksdevopsacr` (ACR with AcrPull role on AKS)
+- **AKS Cluster:** `azure-aks-devops-cluster` — Kubernetes v1.34.8, single node pool
+- **Azure Storage Account:** with file share mounted for PostgreSQL persistent storage
+
+---
+
+## Kubernetes Workloads
+
+All workloads run in the **`fastapi`** namespace.
+
+| Workload | Type | Description |
+|---|---|---|
+| `fastapi-api` | Deployment (2 replicas) | FastAPI REST API with liveness/readiness probes |
+| `fastapi-worker` | Deployment | Celery background task worker |
+| `postgres` | StatefulSet | PostgreSQL with Azure Files persistent volume |
+| `redis` | Deployment | Redis message broker for Celery |
+| `fastapi-service` | Service (LoadBalancer) | Public Azure LoadBalancer exposing port 80 |
+
+Kubernetes Secrets and ConfigMaps are injected dynamically by Ansible and GitHub Actions — no credentials are stored in manifests.
+
+---
 
 ## Ansible Automation
 
-Ansible (`ansible/playbook.yaml`) bridges the gap between infrastructure and application by:
-* Managing K8s namespaces.
-* Applying all Kubernetes manifests idempotently.
-* Using the `helm` module to install the `prometheus-community` stack into the cluster.
+Ansible (`ansible/playbook.yaml`) is used in the `deploy-app` stage to:
 
-## Monitoring
+1. Ensure the `fastapi` Kubernetes namespace exists
+2. Apply all Kubernetes manifests idempotently (ConfigMaps, Secrets, Deployments, Services)
+3. Add and update the `prometheus-community` Helm repository
+4. Install the `kube-prometheus-stack` Helm chart into the `monitoring` namespace
+5. Verify running pods after deployment
 
-Observability is built-in using the kube-prometheus-stack:
-* **Prometheus** scrapes the FastAPI `/metrics` endpoint.
-* **Grafana** visualizes the data (Accessible via port-forwarding the `monitoring-grafana` service).
-* Includes a custom dashboard template (`grafana_template.json`) for tracking API request latency and hardware metrics.
+The Ansible playbook PLAY RECAP confirms: `ok=8, changed=4, failed=0`.
 
-## Security Practices
+See: [06-github-actions-ansible-playbook-success.png](docs/screenshots/06-github-actions-ansible-playbook-success.png)
 
-* **No Secrets Committed:** The `.gitignore` prevents `.env`, `*.tfstate`, and certificates from entering source control.
-* **GitHub Actions Secrets:** Cloud credentials are kept entirely within GitHub Secrets.
-* **Dynamic K8s Secrets:** Kubernetes Secrets are generated and injected on-the-fly during the CI/CD pipeline using the `azure/k8s-create-secret@v4` action.
-* **Code Scanning:** `bandit` is used to detect security vulnerabilities in the Python code during the build phase.
+---
 
-## Required GitHub Secrets
+## Monitoring and Observability
 
-To run the pipeline, the following secrets must be configured in the GitHub repository:
+The **kube-prometheus-stack** is installed via Helm into the `monitoring` namespace:
 
-* `AZURE_CREDENTIALS` (Service Principal JSON)
-* `ACR_NAME`
-* `AZURE_RESOURCE_GROUP`
-* `AKS_CLUSTER_NAME`
-* `POSTGRES_USER`
-* `POSTGRES_PASSWORD`
-* `POSTGRES_DB`
-* `WEATHER_API_KEY`
+- **Prometheus** scrapes metrics from all cluster targets (Grafana, Alertmanager, API server, kubelet, node-exporter) — all reporting **UP**
+- **Grafana** provides pre-built dashboards for cluster compute resources, namespace-level pods, node metrics, kubelet, and node exporter
+- FastAPI pod CPU and memory metrics are visible in the Grafana **Namespace (Pods)** dashboard filtered to the `fastapi` namespace
 
-*(Note: Storage Account keys are fetched dynamically from Terraform outputs by the pipeline).*
+Access Grafana locally:
+```bash
+kubectl port-forward svc/monitoring-grafana -n monitoring 3000:80
+# Open http://localhost:3000  (login: admin / admin)
+```
 
-## Local Development
+---
 
-You can run the entire stack locally without Azure using Docker Compose:
+## Deployment Proof / Screenshots
+
+Full screenshot index: [docs/screenshots/README.md](docs/screenshots/README.md)
+
+### CI/CD Pipeline
+
+![GitHub Actions Overall Success](docs/screenshots/01-github-actions-overall-success.png)
+
+![Terraform Provision Success](docs/screenshots/03-github-actions-terraform-provision-success.png)
+
+![Docker Build and Push Success](docs/screenshots/04-github-actions-docker-build-push-success.png)
+
+![Ansible Playbook Success](docs/screenshots/06-github-actions-ansible-playbook-success.png)
+
+![Smoke Test Success](docs/screenshots/07-github-actions-smoke-test-success.png)
+
+---
+
+### Azure Infrastructure
+
+![Azure Resource Group Overview](docs/screenshots/08-azure-resource-group-overview.png)
+
+![AKS Cluster Overview](docs/screenshots/09-azure-aks-cluster-overview.png)
+
+![ACR Repositories](docs/screenshots/12-azure-acr-repositories.png)
+
+---
+
+### Kubernetes Workloads
+
+![kubectl all fastapi namespace](docs/screenshots/15-kubectl-all-fastapi.png)
+
+![kubectl services LoadBalancer](docs/screenshots/16-kubectl-services-loadbalancer.png)
+
+![FastAPI Public Endpoint](docs/screenshots/17-fastapi-public-endpoint.png)
+
+---
+
+### Monitoring and Observability
+
+![Monitoring Stack Helm Running](docs/screenshots/19-monitoring-stack-helm-running.png)
+
+![Grafana Cluster Dashboard](docs/screenshots/20-grafana-cluster-dashboard.png)
+
+![Grafana FastAPI Namespace Pods](docs/screenshots/21-grafana-fastapi-namespace-pods.png)
+
+![Prometheus Targets UP](docs/screenshots/25-prometheus-targets-up.png)
+
+---
+
+## Local Setup
+
+### Required Tools
+
+| Tool | Purpose |
+|---|---|
+| Azure CLI | Azure authentication and resource management |
+| Terraform | Infrastructure provisioning |
+| Docker | Container image build and local testing |
+| kubectl | Kubernetes cluster management |
+| Helm | Monitoring stack installation |
+| Python 3.11+ | FastAPI and Celery application |
+| Git | Source control |
+
+### Local Development with Docker Compose
 
 ```bash
-# Start the stack
+# Start the full stack locally (no Azure required)
 docker compose up --build
 
-# Access the UI at http://localhost:81/ui
+# Access the API at http://localhost:81
+# API docs at http://localhost:81/docs
 
-# Tear down the stack and remove volumes
+# Tear down
 docker compose down -v
 ```
 
-## Azure Deployment Workflow
+---
 
-For detailed step-by-step instructions on setting up the Azure Service Principal and triggering the pipeline, see [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md).
+## Required GitHub Secrets
 
-## Screenshots / Proof of Work
+Configure these secrets in your GitHub repo under **Settings → Secrets and variables → Actions**:
 
-![Architecture Summary](img/Summary.png)
+| Secret | Description |
+|---|---|
+| `AZURE_CREDENTIALS` | Azure Service Principal JSON (clientId, clientSecret, subscriptionId, tenantId) |
+| `AZURE_RESOURCE_GROUP` | Azure resource group name |
+| `AKS_CLUSTER_NAME` | AKS cluster name |
+| `ACR_NAME` | Azure Container Registry name (without `.azurecr.io`) |
+| `ACR_LOGIN_SERVER` | ACR login server (e.g. `yourname.azurecr.io`) |
+| `POSTGRES_DB` | PostgreSQL database name |
+| `POSTGRES_USER` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `WEATHER_API_KEY` | Weather API key (use `demo` for testing) |
 
-*(Additional screenshots of Grafana and AKS are captured during active runs).*
+> Do not commit secret values. Storage account keys are fetched dynamically from Azure during the pipeline run.
 
-## Cost Cleanup
+---
+
+## Deployment Notes
+
+- Deployed on **Azure for Students** subscription
+- Region: **Southeast Asia**
+- AKS used a **single demo node** (Standard_DS2_v2)
+- Terraform state is managed locally within GitHub Actions (not committed)
+- For production use, configure a **remote Terraform backend** (e.g. Azure Storage with state locking)
+- This demo uses local Terraform state in GitHub Actions. Failed partial runs may require manual Azure resource group cleanup before re-running: `az group delete --name azure-aks-devops-rg --yes --no-wait`
+
+---
+
+## Cleanup
 
 > [!CAUTION]
-> This project provisions real Azure resources (AKS, ACR, LoadBalancers) which cost money. **Always destroy the infrastructure after testing to avoid cloud charges.**
+> This project provisions real Azure resources (AKS, ACR, LoadBalancers, Storage) which incur cost. Always destroy infrastructure after testing.
 
 ```bash
-cd infra
-terraform destroy
+# Delete all Azure resources (recommended)
+az group delete --name azure-aks-devops-rg --yes --no-wait
 ```
+
+---
+
+## Security Notes
+
+- No secrets are committed to this repository
+- `terraform.tfstate` is in `.gitignore`
+- `terraform.tfvars` is in `.gitignore`
+- All credentials are managed through GitHub Actions repository secrets
+- Screenshots containing passwords or credentials are not committed (excluded to `docs/screenshots/_excluded/`)
+- Azure resources should be destroyed after demo use to avoid exposure of public IPs
+
+---
 
 ## Related Portfolio Projects
 
 This project builds on the foundations demonstrated in my other DevOps portfolio repositories:
 
-* [FastAPI DevSecOps Pipeline](https://github.com/M-Fahim-Feroz/fastapi-devsecops-pipeline) — application containerization, testing, security scanning, and Docker image publishing.
-* [Kubernetes Application Deployment](https://github.com/M-Fahim-Feroz/kubernetes-application-deployment) — Kubernetes manifests, Helm, probes, resource limits, autoscaling, and CI validation.
-* [Terraform AWS Infrastructure](https://github.com/M-Fahim-Feroz/terraform-aws-infrastructure) — Infrastructure as Code, secure networking, private compute/database tiers, remote state, and state locking.
+- [FastAPI DevSecOps Pipeline](https://github.com/M-Fahim-Feroz/fastapi-devsecops-pipeline) — Application containerization, testing, security scanning, and Docker image publishing
+- [Kubernetes Application Deployment](https://github.com/M-Fahim-Feroz/kubernetes-application-deployment) — Kubernetes manifests, Helm, probes, resource limits, autoscaling, and CI validation
+- [Terraform AWS Infrastructure](https://github.com/M-Fahim-Feroz/terraform-aws-infrastructure) — Infrastructure as Code, secure networking, private compute/database tiers, remote state, and state locking
 
-## Portfolio Scope
+---
 
-This repository focuses on the complete Azure deployment workflow: infrastructure provisioning, container image delivery, Kubernetes deployment automation, monitoring, and post-deployment validation.
+## For Detailed Deployment Steps
 
+See [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md) for step-by-step Azure setup, service principal creation, and pipeline trigger instructions.

@@ -1,61 +1,51 @@
-# Validation Screenshots
+# Deployment Screenshot Reference
 
-## 📸 Screenshot Checklist
-
-### Step 2: Terraform Infrastructure
-- [ ] **Azure Portal** showing created resources (Resource Group, AKS, ACR, Storage)
-- [ ] **`terraform output`** command results
-- [ ] **`terraform destroy`** proof (cleanup confirmation)
-
-### Step 4: Ansible
-- [ ] **Successful playbook run**: `ansible-playbook -i ansible/inventory.ini ansible/playbook.yaml`
-
-### Step 5: Kubernetes
-- [ ] **`kubectl get pods -n fastapi`** - Show running pods
-- [ ] **`kubectl get svc -n fastapi`** - Show services with External IPs
-- [ ] **`kubectl describe pod <pod-name> -n fastapi`** - Pod details
-- [ ] **`kubectl get pods -n monitoring`** - Prometheus/Grafana pods
-
-### Step 6: CI/CD Pipeline
-- [ ] **GitHub Actions** pipeline showing all stages passed (green checkmarks)
-- [ ] Pipeline details showing: Build & Test → Docker → Terraform → Deploy → Smoke Test
-
-### Step 7: Monitoring
-- [ ] **Grafana Dashboard** - CPU metrics
-- [ ] **Grafana Dashboard** - Memory metrics  
-- [ ] **Grafana Dashboard** - Request count/latency (if applicable)
-- [ ] **Prometheus Targets** - Showing scrape targets active
+> **Status:** All screenshots have been captured and are stored in `docs/screenshots/`.
+> See the [screenshot index](docs/screenshots/README.md) for a full categorized listing.
 
 ---
 
-## 🔧 Commands to Run for Screenshots
+## Screenshots Captured
 
-```bash
-# Kubernetes screenshots
-kubectl get pods -n fastapi
-kubectl get svc -n fastapi
-kubectl describe pod fastapi-api-<hash> -n fastapi
-kubectl get pods -n monitoring
+All deployment proof is now in `docs/screenshots/` using professional naming conventions.
 
-# Terraform screenshots  
-cd infra
-terraform output
-terraform destroy -auto-approve  # AFTER all other screenshots!
+### CI/CD Pipeline
+- `01-github-actions-overall-success.png` — All 5 jobs passing
+- `02-github-actions-build-test-success.png` — Build and test job detail
+- `03-github-actions-terraform-provision-success.png` — Terraform provision job
+- `04-github-actions-docker-build-push-success.png` — Docker build and push job
+- `05-github-actions-deploy-app-success.png` — Deploy app job
+- `06-github-actions-ansible-playbook-success.png` — Ansible PLAY RECAP
+- `07-github-actions-smoke-test-success.png` — Smoke test with endpoint response
 
-# Ansible screenshot
-ansible-playbook -i ansible/inventory.ini ansible/playbook.yaml
-```
+### Azure Infrastructure
+- `08-azure-resource-group-overview.png` — Resource group with all resources
+- `09-azure-aks-cluster-overview.png` — AKS cluster overview
+- `10-azure-aks-node-ready.png` — Node status Ready
+- `11-azure-aks-monitor-dashboard.png` — Azure Monitor dashboard
 
-## 📁 Save Screenshots To
-Save all screenshots in the `img/` folder with descriptive names:
-- `img/azure-portal-resources.png`
-- `img/terraform-output.png`
-- `img/terraform-destroy.png`
-- `img/kubectl-get-pods.png`
-- `img/kubectl-get-svc.png`
-- `img/kubectl-describe-pod.png`
-- `img/ansible-playbook-run.png`
-- `img/github-actions-pipeline.png`
-- `img/grafana-dashboard-cpu.png`
-- `img/grafana-dashboard-memory.png`
-- `img/prometheus-targets.png`
+### ACR
+- `12-azure-acr-repositories.png` — ACR api and worker repositories
+- `13-azure-acr-api-tags.png` — api repository tags
+- `14-azure-acr-worker-tags.png` — worker repository tags
+
+### Kubernetes Workloads
+- `15-kubectl-all-fastapi.png` — kubectl get all output
+- `16-kubectl-services-loadbalancer.png` — Services with LoadBalancer IP
+- `17-fastapi-public-endpoint.png` — FastAPI endpoint response in browser
+
+### Monitoring
+- `19-monitoring-stack-helm-running.png` — Helm list showing monitoring deployed
+- `20-grafana-cluster-dashboard.png` — Grafana cluster compute resources
+- `21-grafana-fastapi-namespace-pods.png` — Grafana fastapi namespace pods
+- `22-grafana-node-pods-dashboard.png` — Grafana node pods
+- `23-grafana-node-exporter-dashboard.png` — Node exporter dashboard
+- `24-grafana-kubelet-dashboard.png` — Kubelet dashboard
+- `25-prometheus-targets-up.png` — Prometheus targets all UP
+- `26-prometheus-query-up.png` — Prometheus `up` query graph
+
+---
+
+## Excluded Screenshots
+
+Screenshots that showed database error logs, duplicate table constraint errors, or other non-clean terminal output were moved to `docs/screenshots/_excluded/` and are not referenced in documentation.

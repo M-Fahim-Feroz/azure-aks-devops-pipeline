@@ -1,15 +1,19 @@
-# 🚀 Azure Deployment Guide
+# Azure Deployment Guide
 
-Complete step-by-step guide to deploy this DevOps project on Azure.
+Complete step-by-step guide to deploy this Azure AKS DevOps pipeline project.
+
+> **Deployment Status:** ✅ Successfully deployed and validated through GitHub Actions.
+> FastAPI endpoint responded with `{"Alperen":"Cubuk"}`. Prometheus/Grafana monitoring stack confirmed UP.
+> Screenshots are stored under `docs/screenshots/`.
 
 ---
 
 ## Prerequisites
 
-1. **Azure Account** with active subscription
+1. **Azure Account** with active subscription ([Azure for Students](https://azure.microsoft.com/en-us/free/students/) works)
 2. **Azure CLI** installed ([Download](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli))
 3. **GitHub Account** with this repo forked/cloned
-4. **Docker Desktop** (for local testing)
+4. **Docker Desktop** (for local testing only)
 
 ---
 
@@ -41,7 +45,8 @@ az ad sp create-for-rbac \
   --sdk-auth
 ```
 
-**Save the JSON output** - you'll need it for GitHub Secrets:
+**Save the JSON output** — you will need it for the `AZURE_CREDENTIALS` GitHub Secret:
+
 ```json
 {
   "clientId": "value-from-appId",
@@ -51,7 +56,7 @@ az ad sp create-for-rbac \
 }
 ```
 
-> **Note**: The Azure service principal command may output appId/password/tenant. For GitHub Actions, you must convert it to the exact JSON format shown above with `clientId`, `clientSecret`, `subscriptionId`, and `tenantId` keys.
+> **Note:** The Azure CLI may output `appId`/`password`/`tenant`. For GitHub Actions, convert to the exact JSON format above with `clientId`, `clientSecret`, `subscriptionId`, and `tenantId` keys.
 
 ---
 
@@ -59,10 +64,10 @@ az ad sp create-for-rbac \
 
 Go to your GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
 
-### Required Secrets:
+### Required Secrets
 
-| Secret Name | Value |
-|-------------|-------|
+| Secret Name | Example / Notes |
+|---|---|
 | `AZURE_CREDENTIALS` | Entire JSON block from Step 2 |
 | `ACR_LOGIN_SERVER` | `fahimaksdevopsacr.azurecr.io` |
 | `ACR_NAME` | `fahimaksdevopsacr` |
@@ -70,118 +75,167 @@ Go to your GitHub repo → **Settings** → **Secrets and variables** → **Acti
 | `AZURE_RESOURCE_GROUP` | `azure-aks-devops-rg` |
 | `POSTGRES_DB` | `appdb` |
 | `POSTGRES_USER` | `admin` |
-| `POSTGRES_PASSWORD` | `<secure-password>` |
+| `POSTGRES_PASSWORD` | `<your-secure-password>` |
 | `WEATHER_API_KEY` | `demo` (or your real API key) |
 
-> **Note**: Storage account credentials are automatically fetched securely via the Azure CLI during deployment - no manual setup or Terraform state exposure needed!
+> **Security note:** Do not commit secret values. Storage account credentials are automatically fetched during the pipeline run using Azure CLI — no manual setup needed.
 
 ---
 
-## Step 4: Deploy! 🚀
+## Step 4: Trigger the Pipeline
+
+Push to main branch to trigger the GitHub Actions workflow:
 
 ```bash
-# Commit and push to main branch
 git add .
-git commit -m "Fix Azure deployment configuration alignment"
+git commit -m "Initial deployment"
 git push origin main
 ```
 
-The GitHub Actions pipeline will automatically:
-1. ✅ **Build & Test** - Lint, security scan, unit tests
-2. ✅ **Terraform Apply** - Create Resource Group, VNet, AKS, ACR, Storage
-3. ✅ **Docker Build** - Build and push images to Azure Container Registry
-4. ✅ **Ansible Deploy** - Create secrets securely, apply K8s manifests, install monitoring
-5. ✅ **Smoke Test** - Verify application is accessible
+### What the pipeline does automatically
+
+1. ✅ **Secret validation** — preflight check for all 9 required secrets
+2. ✅ **Build & Test** — Flake8 lint, Bandit security scan, Pytest unit tests
+3. ✅ **Terraform Apply** — provisions Resource Group, VNet, AKS, ACR, Storage Account
+4. ✅ **Docker Build** — builds and pushes `api` and `worker` images to ACR
+5. ✅ **Ansible Deploy** — creates Kubernetes secrets, applies manifests, installs Prometheus/Grafana via Helm
+6. ✅ **Smoke Test** — verifies the public FastAPI endpoint returns the expected JSON response
 
 ---
 
 ## Step 5: Access Your Application
 
 ```bash
-# Get AKS credentials
+# Get AKS credentials locally
 az aks get-credentials --resource-group azure-aks-devops-rg --name azure-aks-devops-cluster
 
-# Get external IP
+# Get all workloads and services
+kubectl get all -n fastapi
+
+# Get external LoadBalancer IP
 kubectl get svc -n fastapi
 
-# Output:
-# NAME              TYPE           EXTERNAL-IP     PORT(S)
-# fastapi-service   LoadBalancer   20.xxx.xxx.xxx  80:xxxxx/TCP
+# Example output:
+# NAME              TYPE           CLUSTER-IP     EXTERNAL-IP       PORT(S)
+# fastapi-service   LoadBalancer   10.0.217.28    40.119.215.246    80:31876/TCP
 ```
 
-**Access URLs:**
-- 🌐 Web UI: `http://<EXTERNAL-IP>/ui`
+**Access URLs** (replace `<EXTERNAL-IP>` with the IP from above):
+- 🌐 API root: `http://<EXTERNAL-IP>/`
 - 📚 API Docs: `http://<EXTERNAL-IP>/docs`
+- 🖥️ Web UI: `http://<EXTERNAL-IP>/ui`
 
 ---
 
-## Step 6: Access Monitoring (Grafana)
+## Step 6: Access Monitoring (Grafana + Prometheus)
 
 ```bash
-# Get Grafana service
+# List monitoring services
 kubectl get svc -n monitoring
 
-# Port-forward if no external IP
+# Port-forward Grafana
 kubectl port-forward svc/monitoring-grafana -n monitoring 3000:80
 ```
 
-- **URL**: `http://localhost:3000`
-- **Login**: `admin` / `admin`
-- **Import Dashboard**: Use `grafana_template.json`
+- **Grafana URL:** `http://localhost:3000`
+- **Login:** `admin` / `admin`
+- **Dashboards available:** Kubernetes Cluster, Namespace Pods, Node Exporter, Kubelet
+
+```bash
+# Port-forward Prometheus
+kubectl port-forward svc/monitoring-kube-prometheus-prometheus -n monitoring 9090:9090
+```
+
+- **Prometheus URL:** `http://localhost:9090`
+- Check **Status → Targets** to confirm all targets are UP
 
 ---
 
-## 📸 Validation Commands
+## Validation Commands
 
 ```bash
-# Kubernetes
+# Check all fastapi namespace pods
 kubectl get pods -n fastapi
+
+# Check services and LoadBalancer IP
 kubectl get svc -n fastapi
-kubectl describe pod fastapi-api-<hash> -n fastapi
+
+# Check monitoring pods
 kubectl get pods -n monitoring
 
-# Terraform
-cd infra
-terraform output
+# Check Helm releases
+helm list -A
+
+# Verify endpoint manually
+curl http://<EXTERNAL-IP>/
 ```
 
 ---
 
-## 🧹 Cleanup (Teardown)
+## Deployment Notes
 
-> [!CAUTION]
-> This project creates real Azure resources. Destroy the infrastructure after screenshots to avoid charges.
-
-```bash
-# Delete all Azure resources
-cd infra
-terraform destroy
-
-# Or delete entire resource group manually
-az group delete --name azure-aks-devops-rg --yes --no-wait
-```
+- Deployed on **Azure for Students** subscription in **Southeast Asia** region
+- AKS cluster uses a **single demo node** (Standard_DS2_v2)
+- Terraform state is managed locally within GitHub Actions (not committed to the repository)
+- **For production:** Use a remote Terraform backend (e.g. Azure Storage Account with state locking)
+- Failed partial pipeline runs may leave partial Azure resources. If re-running after a failure, delete the resource group manually first: `az group delete --name azure-aks-devops-rg --yes --no-wait`
 
 ---
 
 ## Troubleshooting
 
-### Pipeline Fails at Terraform
-- Verify `AZURE_CREDENTIALS` JSON is properly formatted.
-- Check Azure subscription has sufficient quota.
+### Pipeline fails at Terraform Apply
+
+- Verify `AZURE_CREDENTIALS` JSON is correctly formatted (all 4 fields present)
+- Check Azure subscription quota for AKS nodes (at least 2 vCPUs needed)
+- Ensure the service principal has `Contributor` role on the subscription
 
 ### Pods in CrashLoopBackOff
+
 ```bash
 kubectl logs <pod-name> -n fastapi
 kubectl describe pod <pod-name> -n fastapi
 ```
 
 ### ACR Login Fails
+
 ```bash
 az acr login --name fahimaksdevopsacr
 ```
 
-### Can't Access External IP
+### Cannot Access External IP
+
 ```bash
-# Wait for LoadBalancer provisioning (can take 2-5 minutes)
+# Wait for LoadBalancer provisioning (can take 2–5 minutes after deployment)
 kubectl get svc -n fastapi -w
 ```
+
+### Smoke Test Fails with Connection Refused
+
+The LoadBalancer IP may take 2–5 minutes to become active after provisioning. The smoke test includes a wait loop — if it times out, check pod readiness first:
+
+```bash
+kubectl get pods -n fastapi
+```
+
+---
+
+## Cleanup
+
+> [!CAUTION]
+> This project provisions real Azure resources (AKS, ACR, LoadBalancers, Storage Account) which incur ongoing cost. Always destroy infrastructure after testing/demo.
+
+```bash
+# Delete the entire resource group (fastest cleanup method)
+az group delete --name azure-aks-devops-rg --yes --no-wait
+```
+
+This removes: AKS cluster, ACR, virtual network, storage account, and all associated resources.
+
+---
+
+## Screenshots
+
+Deployment proof screenshots are stored in [`docs/screenshots/`](docs/screenshots/).
+
+See the [screenshot index](docs/screenshots/README.md) for a categorized view of all CI/CD, Azure infrastructure, Kubernetes workload, and monitoring screenshots.
