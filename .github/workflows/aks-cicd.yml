@@ -2,8 +2,10 @@ name: Deploy to AKS (API + Celery)
 
 on:
   push:
-    branches: [main, shahzaib-dev]
-  workflow_dispatch: {}
+    branches:
+      - main
+      - shahzaib-dev
+  workflow_dispatch:
 
 env:
   REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
@@ -17,6 +19,34 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate required GitHub secrets
+        shell: bash
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+          ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+          AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
+        run: |
+          missing=0
+
+          for name in AZURE_CREDENTIALS ACR_NAME ACR_LOGIN_SERVER AKS_CLUSTER_NAME AZURE_RESOURCE_GROUP POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD WEATHER_API_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is missing or empty. Add it in GitHub repository Settings > Secrets and variables > Actions."
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -eq 1 ]; then
+            exit 1
+          fi
+
+          echo "All required GitHub secrets are present."
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -70,7 +100,14 @@ jobs:
 
       - name: Terraform Apply
         working-directory: ./infra
-        run: terraform apply -auto-approve -var="aks_name=${{ secrets.AKS_CLUSTER_NAME }}" -var="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" -var="acr_name=${{ secrets.ACR_NAME }}"
+        run: |
+          echo "Deploying AKS cluster: ${{ secrets.AKS_CLUSTER_NAME }}"
+          echo "Resource group: ${{ secrets.AZURE_RESOURCE_GROUP }}"
+          echo "ACR name: ${{ secrets.ACR_NAME }}"
+          terraform apply -auto-approve \
+            -var="aks_name=${{ secrets.AKS_CLUSTER_NAME }}" \
+            -var="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            -var="acr_name=${{ secrets.ACR_NAME }}"
 
       - name: Get Terraform Outputs
         id: tf-outputs
