@@ -1,8 +1,18 @@
 import time
+import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import SQLModel
 from api.main import app
+from api.database import engine
+from api import models
 
 client = TestClient(app)
+
+@pytest.fixture(autouse=True)
+def setup_db():
+    SQLModel.metadata.create_all(engine)
+    yield
+    SQLModel.metadata.drop_all(engine)
 
 
 def test_read_root():
