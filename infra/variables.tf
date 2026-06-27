@@ -1,5 +1,5 @@
 variable "resource_group_name" {
-  default = "fastapi-rg"
+  default = "azure-aks-devops-rg"
 }
 
 variable "location" {
@@ -7,11 +7,11 @@ variable "location" {
 }
 
 variable "aks_name" {
-  default = "fastapi-aks"
+  default = "azure-aks-devops-cluster"
 }
 
 variable "acr_name" {
-  default = "fastapiacr123456789"
+  default = "fahimaksdevopsacr"
 }
 
 variable "node_vm_size" {
