@@ -1,0 +1,48 @@
+---
+- name: Configure Kubernetes Cluster
+  hosts: local
+  gather_facts: false
+  tasks:
+    - name: Ensure namespace 'fastapi' exists
+      shell: kubectl create namespace fastapi --dry-run=client -o yaml | kubectl apply -f -
+      register: namespace_result
+      changed_when: "'created' in namespace_result.stdout"
+
+    - name: Apply ConfigMap (General Settings)
+      command: kubectl apply -f ../k8s/configmap.yaml
+      # This file is required for the application configuration
+      
+
+    - name: Deploy Application Manifests
+      command: kubectl apply -f ../k8s/ -n fastapi
+      register: deploy_result
+      changed_when: "'configured' in deploy_result.stdout or 'created' in deploy_result.stdout"
+
+    # ---------------------------------------------------------------------
+    # Monitoring (Prometheus + Grafana)
+    # ---------------------------------------------------------------------
+    - name: Add Prometheus Helm Repo
+      command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      register: helm_repo
+      changed_when: "'has been added' in helm_repo.stdout"
+    
+    - name: Update Helm Repos
+      command: helm repo update
+      changed_when: false
+
+    - name: Install Prometheus & Grafana Stack
+      command: >
+        helm upgrade --install monitoring prometheus-community/kube-prometheus-stack
+        --namespace monitoring --create-namespace
+        --set grafana.adminPassword='{{ grafana_password }}'
+      register: helm_install
+      changed_when: "'Release \"monitoring\" does not exist' in helm_install.stdout or 'Upgrading' in helm_install.stdout"
+
+    - name: Verify Deployment
+      command: kubectl get pods -n fastapi
+      register: pods_output
+      changed_when: false
+
+    - name: Show Running Pods
+      debug:
+        msg: "{{ pods_output.stdout_lines }}"

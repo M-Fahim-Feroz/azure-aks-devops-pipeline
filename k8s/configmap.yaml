@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fastapi-config
+  namespace: fastapi
+data:
+  # Separate config from code
+  CELERY_TASK_ALWAYS_EAGER: "False"
+  LOG_LEVEL: "INFO"
+  UI_TITLE: "Azure AKS DevOps Pipeline"

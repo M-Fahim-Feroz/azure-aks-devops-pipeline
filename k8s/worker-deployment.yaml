@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fastapi-worker
+  template:
+    metadata:
+      labels:
+        app: fastapi-worker
+    spec:
+      containers:
+      - name: worker
+        image: fastapiacr123456789.azurecr.io/worker:latest
+        imagePullPolicy: Always
+        command: ["celery", "-A", "api.tasks", "worker", "--loglevel=info"]
+        envFrom:
+        - secretRef:
+            name: fastapi-secrets
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FastAPI DevOps Lab UI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero__text">
+        <p class="eyebrow">FastAPI · Celery · Redis · Postgres</p>
+        <h1>Operate the lab visually</h1>
+        <p class="lede">Queue background jobs, fetch users and weather snapshots, and watch tasks progress without touching curl.</p>
+        <div class="hero__actions">
+          <a class="pill" href="/docs" target="_blank" rel="noreferrer">Open Swagger Docs</a>
+          <span class="hint">Backend must be running on the same host.</span>
+        </div>
+      </div>
+      <div class="hero__badge">
+        <div class="badge">UI Preview</div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card card--wide">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Users</p>
+            <h2>Queue random users</h2>
+            <p class="muted">Calls POST /users/{count}/{delay} and tracks the Celery task.</p>
+          </div>
+          <div class="pill pill--ghost" id="task-live-status">No task active</div>
+        </header>
+        <form id="form-user-queue" class="form-inline">
+          <label>
+            Count
+            <input type="number" name="count" min="1" max="50" value="3" required>
+          </label>
+          <label>
+            Delay (seconds)
+            <input type="number" name="delay" min="0" max="60" value="10" required>
+          </label>
+          <button type="submit">Queue users</button>
+        </form>
+        <div class="stack" id="user-task-output"></div>
+      </section>
+
+      <section class="card card--wide">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Users</p>
+            <h2>Manage Users</h2>
+            <p class="muted">List, Edit, and Delete users.</p>
+          </div>
+          <button id="btn-refresh-users" class="pill pill--ghost">Refresh List</button>
+        </header>
+        <div class="table-wrapper">
+          <table id="users-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>First Name</th>
+                <th>Last Name</th>
+                <th>Email</th>
+                <th>Age</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- User rows will be injected here -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Users</p>
+            <h2>Add user</h2>
+            <p class="muted">Creates a user directly (POST /users)</p>
+          </div>
+        </header>
+        <form id="form-user-add" class="form-inline">
+          <label>
+            First Name
+            <input type="text" name="firstName" placeholder="John" required>
+          </label>
+          <label>
+            Last Name
+            <input type="text" name="lastName" placeholder="Doe" required>
+          </label>
+          <label>
+            Email
+            <input type="email" name="mail" placeholder="john@example.com" required>
+          </label>
+          <label>
+            Age
+            <input type="number" name="age" min="1" max="120" placeholder="25" required>
+          </label>
+          <button type="submit">Add user</button>
+        </form>
+        <div class="stack" id="add-user-output"></div>
+      </section>
+
+      <section class="card">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Users</p>
+            <h2>Lookup user</h2>
+          </div>
+        </header>
+        <form id="form-user-get" class="form-inline">
+          <label>
+            User ID
+            <input type="number" name="userId" min="1" placeholder="e.g. 1" required>
+          </label>
+          <button type="submit">Fetch user</button>
+        </form>
+        <div class="stack" id="user-output"></div>
+        <p class="muted">Queue users first to have data to fetch.</p>
+      </section>
+
+      <section class="card">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Weather</p>
+            <h2>Queue city weather</h2>
+            <p class="muted">Uses POST /weathers/{city}/{delay}</p>
+          </div>
+        </header>
+        <form id="form-weather-queue" class="form-inline">
+          <label>
+            City
+            <input type="text" name="city" placeholder="istanbul" required>
+          </label>
+          <label>
+            Delay (seconds)
+            <input type="number" name="delay" min="0" max="60" value="10" required>
+          </label>
+          <button type="submit">Queue weather</button>
+        </form>
+        <div class="stack" id="weather-task-output"></div>
+      </section>
+
+      <section class="card card--wide">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Weather</p>
+            <h2>View city forecast</h2>
+            <p class="muted">Reads GET /weathers/{city}</p>
+          </div>
+        </header>
+        <form id="form-weather-get" class="form-inline">
+          <label>
+            City
+            <input type="text" name="city" placeholder="ankara" required>
+          </label>
+          <button type="submit">Fetch forecast</button>
+        </form>
+        <div class="stack" id="weather-output"></div>
+        <p class="muted">Queue weather for a city first to have data to view.</p>
+      </section>
+
+      <section class="card">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Tasks</p>
+            <h2>Check task status</h2>
+          </div>
+        </header>
+        <form id="form-task-status" class="form-inline">
+          <label>
+            Task ID
+            <input type="text" name="taskId" placeholder="celery task id" required>
+          </label>
+          <button type="submit">Check</button>
+        </form>
+        <div class="stack" id="task-output"></div>
+      </section>
+
+      <section class="card card--wide">
+        <header class="card__head">
+          <div>
+            <p class="eyebrow">Activity</p>
+            <h2>Live feed</h2>
+            <p class="muted">Recent actions and responses.</p>
+          </div>
+          <button class="link" id="clear-log" type="button">Clear</button>
+        </header>
+        <ul class="log" id="activity-log" aria-live="polite"></ul>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="/static/app.js"></script>
+  <div id="edit-modal" class="modal hidden">
+    <div class="modal-content card">
+      <header class="card__head">
+        <h2>Edit User</h2>
+        <button class="close-modal">&times;</button>
+      </header>
+      <form id="form-user-edit">
+        <input type="hidden" name="id">
+        <label>
+          First Name
+          <input type="text" name="firstName" required>
+        </label>
+        <label>
+          Last Name
+          <input type="text" name="lastName" required>
+        </label>
+        <label>
+          Email
+          <input type="email" name="mail" required>
+        </label>
+        <label>
+          Age
+          <input type="number" name="age" min="1" max="120" required>
+        </label>
+        <div class="form-actions">
+          <button type="submit">Save Changes</button>
+          <button type="button" class="cancel-modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
