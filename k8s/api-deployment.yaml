@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: api
-        image: fastapiacr123456789.azurecr.io/api:latest
+        image: fahimaksdevopsacr.azurecr.io/api:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000

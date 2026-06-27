@@ -1,0 +1,7 @@
+# Example variables for local testing
+resource_group_name = "azure-aks-devops-rg"
+location = "southeastasia"
+aks_name = "azure-aks-devops-cluster"
+acr_name = "fahimaksdevopsacr"
+node_vm_size = "Standard_B2s_v2"
+node_count = 1

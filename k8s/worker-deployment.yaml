@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: worker
-        image: fastapiacr123456789.azurecr.io/worker:latest
+        image: fahimaksdevopsacr.azurecr.io/worker:latest
         imagePullPolicy: Always
         command: ["celery", "-A", "api.tasks", "worker", "--loglevel=info"]
         envFrom:

@@ -32,7 +32,7 @@ resource "azurerm_subnet" "subnet" {
 # Azure Container Registry (ACR)
 # -------------------------------
 resource "azurerm_container_registry" "acr" {
-  name                = "fastapiacr123456789"
+  name                = var.acr_name
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   sku                 = "Basic"
@@ -65,11 +65,12 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 # -------------------------------
 # AKS → ACR PULL PERMISSION
-# NOTE: This role assignment is managed MANUALLY outside Terraform.
-# The Service Principal lacks 'User Access Administrator' role required
-# to create role assignments. Assign 'AcrPull' to the AKS identity via
-# the Azure Portal: ACR → Access Control (IAM) → Add role assignment.
 # -------------------------------
+resource "azurerm_role_assignment" "aks_acr_pull" {
+  principal_id         = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
+  role_definition_name = "AcrPull"
+  scope                = azurerm_container_registry.acr.id
+}
 # -------------------------------
 # Random ID for Storage Account
 # -------------------------------

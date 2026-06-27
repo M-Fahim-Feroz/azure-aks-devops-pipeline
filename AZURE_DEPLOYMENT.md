@@ -44,12 +44,14 @@ az ad sp create-for-rbac \
 **Save the JSON output** - you'll need it for GitHub Secrets:
 ```json
 {
-  "clientId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "clientSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "subscriptionId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "tenantId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  "clientId": "value-from-appId",
+  "clientSecret": "value-from-password",
+  "subscriptionId": "value-from-az-account-show",
+  "tenantId": "value-from-tenant"
 }
 ```
+
+> **Note**: The Azure service principal command may output appId/password/tenant. For GitHub Actions, you must convert it to the exact JSON format shown above with `clientId`, `clientSecret`, `subscriptionId`, and `tenantId` keys.
 
 ---
 
@@ -59,23 +61,19 @@ Go to your GitHub repo → **Settings** → **Secrets and variables** → **Acti
 
 ### Required Secrets:
 
-| Secret Name | Value | Source |
-|-------------|-------|--------|
-| `AZURE_CREDENTIALS` | Entire JSON from Step 2 | Service Principal output |
-| `ARM_CLIENT_ID` | `clientId` field | Service Principal JSON |
-| `ARM_CLIENT_SECRET` | `clientSecret` field | Service Principal JSON |
-| `ARM_SUBSCRIPTION_ID` | `subscriptionId` field | Service Principal JSON |
-| `ARM_TENANT_ID` | `tenantId` field | Service Principal JSON |
-| `ACR_LOGIN_SERVER` | `fastapiacr123456789.azurecr.io` | From `infra/variables.tf` |
-| `ACR_NAME` | `fastapiacr123456789` | From `infra/variables.tf` |
-| `AKS_CLUSTER_NAME` | `fastapi-aks` | From `infra/variables.tf` |
-| `AZURE_RESOURCE_GROUP` | `fastapi-rg` | From `infra/variables.tf` |
-| `POSTGRES_DB` | `appdb` | Your choice |
-| `POSTGRES_USER` | `admin` | Your choice |
-| `POSTGRES_PASSWORD` | `<secure-password>` | Your choice |
-| `WEATHER_API_KEY` | `<your-api-key>` | From weather API provider |
+| Secret Name | Value |
+|-------------|-------|
+| `AZURE_CREDENTIALS` | Entire JSON block from Step 2 |
+| `ACR_LOGIN_SERVER` | `fahimaksdevopsacr.azurecr.io` |
+| `ACR_NAME` | `fahimaksdevopsacr` |
+| `AKS_CLUSTER_NAME` | `azure-aks-devops-cluster` |
+| `AZURE_RESOURCE_GROUP` | `azure-aks-devops-rg` |
+| `POSTGRES_DB` | `appdb` |
+| `POSTGRES_USER` | `admin` |
+| `POSTGRES_PASSWORD` | `<secure-password>` |
+| `WEATHER_API_KEY` | `demo` (or your real API key) |
 
-> **Note**: Storage account credentials are automatically fetched from Terraform - no manual setup needed!
+> **Note**: Storage account credentials are automatically fetched securely via the Azure CLI during deployment - no manual setup or Terraform state exposure needed!
 
 ---
 
@@ -84,15 +82,15 @@ Go to your GitHub repo → **Settings** → **Secrets and variables** → **Acti
 ```bash
 # Commit and push to main branch
 git add .
-git commit -m "Deploy to Azure"
+git commit -m "Fix Azure deployment configuration alignment"
 git push origin main
 ```
 
 The GitHub Actions pipeline will automatically:
 1. ✅ **Build & Test** - Lint, security scan, unit tests
-2. ✅ **Docker Build** - Push images to Azure Container Registry
-3. ✅ **Terraform Apply** - Create AKS, VNet, ACR, Storage
-4. ✅ **Ansible Deploy** - Apply K8s manifests, install monitoring
+2. ✅ **Terraform Apply** - Create Resource Group, VNet, AKS, ACR, Storage
+3. ✅ **Docker Build** - Build and push images to Azure Container Registry
+4. ✅ **Ansible Deploy** - Create secrets securely, apply K8s manifests, install monitoring
 5. ✅ **Smoke Test** - Verify application is accessible
 
 ---
@@ -101,7 +99,7 @@ The GitHub Actions pipeline will automatically:
 
 ```bash
 # Get AKS credentials
-az aks get-credentials --resource-group fastapi-rg --name fastapi-aks
+az aks get-credentials --resource-group azure-aks-devops-rg --name azure-aks-devops-cluster
 
 # Get external IP
 kubectl get svc -n fastapi
@@ -145,22 +143,22 @@ kubectl get pods -n monitoring
 # Terraform
 cd infra
 terraform output
-
-# After all screenshots, cleanup:
-terraform destroy -auto-approve
 ```
 
 ---
 
 ## 🧹 Cleanup (Teardown)
 
+> [!CAUTION]
+> This project creates real Azure resources. Destroy the infrastructure after screenshots to avoid charges.
+
 ```bash
 # Delete all Azure resources
 cd infra
-terraform destroy -auto-approve
+terraform destroy
 
 # Or delete entire resource group manually
-az group delete --name fastapi-rg --yes --no-wait
+az group delete --name azure-aks-devops-rg --yes --no-wait
 ```
 
 ---
@@ -168,8 +166,8 @@ az group delete --name fastapi-rg --yes --no-wait
 ## Troubleshooting
 
 ### Pipeline Fails at Terraform
-- Verify all `ARM_*` secrets are correctly set
-- Check Azure subscription has sufficient quota
+- Verify `AZURE_CREDENTIALS` JSON is properly formatted.
+- Check Azure subscription has sufficient quota.
 
 ### Pods in CrashLoopBackOff
 ```bash
@@ -179,7 +177,7 @@ kubectl describe pod <pod-name> -n fastapi
 
 ### ACR Login Fails
 ```bash
-az acr login --name fastapiacr123456789
+az acr login --name fahimaksdevopsacr
 ```
 
 ### Can't Access External IP

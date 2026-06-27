@@ -34,10 +34,55 @@ jobs:
         run: flake8 api/ --count --select=E9,F63,F7,F82 --show-source --statistics
 
   # ---------------------------------------------------------------------
-  # 2. Docker Build & Push
+  # 2. Infrastructure Provisioning (Terraform)
+  # ---------------------------------------------------------------------
+  provision-infra:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    outputs:
+      storage_account_name: ${{ steps.tf-outputs.outputs.storage_account_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false  # Required for proper output parsing
+
+      - name: Extract ARM Credentials
+        id: arm-creds
+        run: |
+          # The ubuntu-latest runner includes jq by default
+          echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+
+      - name: Terraform Init
+        working-directory: ./infra
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./infra
+        run: terraform apply -auto-approve -var="aks_name=${{ secrets.AKS_CLUSTER_NAME }}" -var="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" -var="acr_name=${{ secrets.ACR_NAME }}"
+
+      - name: Get Terraform Outputs
+        id: tf-outputs
+        working-directory: ./infra
+        run: |
+          echo "storage_account_name=$(terraform output -raw storage_account_name)" >> $GITHUB_OUTPUT
+
+  # ---------------------------------------------------------------------
+  # 3. Docker Build & Push
   # ---------------------------------------------------------------------
   docker-build:
-    needs: [build-and-test, provision-infra]  # Wait for ACR to be created by Terraform
+    needs: [provision-infra]  # Wait for ACR to be created by Terraform
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -75,52 +120,6 @@ jobs:
           tags: ${{ env.REGISTRY }}/worker:${{ env.IMAGE_TAG }},${{ env.REGISTRY }}/worker:latest
 
   # ---------------------------------------------------------------------
-  # 3. Infrastructure Provisioning (Terraform)
-  # ---------------------------------------------------------------------
-  provision-infra:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    outputs:
-      storage_account_name: ${{ steps.tf-outputs.outputs.storage_account_name }}
-      storage_account_key: ${{ steps.tf-outputs.outputs.storage_account_key }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false  # Required for proper output parsing
-
-      - name: Extract ARM Credentials
-        id: arm-creds
-        run: |
-          echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
-
-      - name: Terraform Init
-        working-directory: ./infra
-        run: terraform init
-
-      - name: Terraform Apply
-        working-directory: ./infra
-        run: terraform apply -auto-approve -var="aks_name=${{ secrets.AKS_CLUSTER_NAME }}" -var="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}"
-
-      - name: Get Terraform Outputs
-        id: tf-outputs
-        working-directory: ./infra
-        run: |
-          echo "storage_account_name=$(terraform output -raw storage_account_name)" >> $GITHUB_OUTPUT
-          echo "storage_account_key=$(terraform output -raw storage_account_key)" >> $GITHUB_OUTPUT
-
-  # ---------------------------------------------------------------------
   # 4. Configuration & Deployment (Ansible + K8s)
   # ---------------------------------------------------------------------
   deploy-app:
@@ -152,13 +151,20 @@ jobs:
           secret-name: fastapi-secrets
           string-data: '{"POSTGRES_DB": "${{ secrets.POSTGRES_DB }}", "POSTGRES_USER": "${{ secrets.POSTGRES_USER }}", "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}", "DATABASE_URL": "postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}", "CELERY_BROKER_URL": "redis://redis:6379/0", "CELERY_RESULT_BACKEND": "redis://redis:6379/0", "WEATHER_API_KEY": "${{ secrets.WEATHER_API_KEY }}"}'
 
-      - name: Create Azure Storage Secret (Dynamic from Terraform)
+      - name: Fetch Storage Key & Mask
+        id: get-storage-key
+        run: |
+          STORAGE_KEY=$(az storage account keys list -g ${{ secrets.AZURE_RESOURCE_GROUP }} -n ${{ needs.provision-infra.outputs.storage_account_name }} --query '[0].value' -o tsv)
+          echo "::add-mask::$STORAGE_KEY"
+          echo "key=$STORAGE_KEY" >> $GITHUB_OUTPUT
+
+      - name: Create Azure Storage Secret
         uses: azure/k8s-create-secret@v4
         with:
           namespace: ${{ env.NAMESPACE }}
           secret-type: 'generic'
           secret-name: azure-secret
-          string-data: '{"azurestorageaccountname": "${{ needs.provision-infra.outputs.storage_account_name }}", "azurestorageaccountkey": "${{ needs.provision-infra.outputs.storage_account_key }}"}'
+          string-data: '{"azurestorageaccountname": "${{ needs.provision-infra.outputs.storage_account_name }}", "azurestorageaccountkey": "${{ steps.get-storage-key.outputs.key }}"}'
 
 
       - name: Run Ansible Playbook

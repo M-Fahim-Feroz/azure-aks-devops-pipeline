@@ -74,6 +74,9 @@ The `.github/workflows/aks-cicd.yml` workflow orchestrates the following stages 
 
 ## Infrastructure Automation
 
+> [!WARNING]
+> Terraform state management must be configured before relying on GitHub Actions for repeated apply/destroy operations. For this demo, use a controlled single deployment and verify resources in Azure Portal before cleanup.
+
 Terraform (`infra/`) provisions the following resources in Azure:
 * **Resource Group**
 * **Virtual Network & Subnets**
