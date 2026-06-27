@@ -61,6 +61,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
   network_profile {
     network_plugin = "azure"
   }
+
+  oidc_issuer_enabled       = true
+  workload_identity_enabled = true
 }
 
 # -------------------------------
@@ -72,17 +75,10 @@ resource "azurerm_role_assignment" "aks_acr_pull" {
   scope                = azurerm_container_registry.acr.id
 }
 # -------------------------------
-# Random ID for Storage Account
-# -------------------------------
-resource "random_id" "storage_account_name" {
-  byte_length = 8
-}
-
-# -------------------------------
 # Storage Account
 # -------------------------------
 resource "azurerm_storage_account" "storage" {
-  name                     = "fastapi${lower(random_id.storage_account_name.hex)}"
+  name                     = "fastapi${substr(md5(azurerm_resource_group.rg.id), 0, 8)}"
   resource_group_name      = azurerm_resource_group.rg.name
   location                 = azurerm_resource_group.rg.location
   account_tier             = "Standard"

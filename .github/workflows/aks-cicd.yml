@@ -139,13 +139,82 @@ jobs:
         working-directory: ./infra
         run: terraform init
 
-      - name: Adopt Existing Resources (Best Effort)
+      - name: Import existing resources into Terraform state if needed
         working-directory: ./infra
-        continue-on-error: true
+        shell: bash
         run: |
-          terraform import azurerm_resource_group.rg /subscriptions/${{ env.ARM_SUBSCRIPTION_ID }}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}
-          terraform import azurerm_container_registry.acr /subscriptions/${{ env.ARM_SUBSCRIPTION_ID }}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}/providers/Microsoft.ContainerRegistry/registries/${{ secrets.ACR_NAME }}
-          terraform import azurerm_kubernetes_cluster.aks /subscriptions/${{ env.ARM_SUBSCRIPTION_ID }}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}/providers/Microsoft.ContainerService/managedClusters/${{ secrets.AKS_CLUSTER_NAME }}
+          set -euo pipefail
+
+          SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+
+          RG_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}"
+          VNET_ID="${RG_ID}/providers/Microsoft.Network/virtualNetworks/fastapi-vnet"
+          SUBNET_ID="${VNET_ID}/subnets/fastapi-subnet"
+          ACR_ID="${RG_ID}/providers/Microsoft.ContainerRegistry/registries/${{ secrets.ACR_NAME }}"
+          AKS_ID="${RG_ID}/providers/Microsoft.ContainerService/managedClusters/${{ secrets.AKS_CLUSTER_NAME }}"
+
+          if terraform state show azurerm_resource_group.rg >/dev/null 2>&1; then
+            echo "Resource Group already managed by Terraform state."
+          elif az group show --name "${{ secrets.AZURE_RESOURCE_GROUP }}" >/dev/null 2>&1; then
+            echo "Existing Resource Group found. Importing into Terraform state."
+            terraform import azurerm_resource_group.rg "$RG_ID"
+          else
+            echo "Resource Group does not exist yet. Terraform will create it."
+          fi
+
+          if terraform state show azurerm_virtual_network.vnet >/dev/null 2>&1; then
+            echo "VNet already managed by Terraform state."
+          elif az network vnet show --ids "$VNET_ID" >/dev/null 2>&1; then
+            echo "Existing VNet found. Importing into Terraform state."
+            terraform import azurerm_virtual_network.vnet "$VNET_ID"
+          else
+            echo "VNet does not exist yet. Terraform will create it."
+          fi
+
+          if terraform state show azurerm_subnet.subnet >/dev/null 2>&1; then
+            echo "Subnet already managed by Terraform state."
+          elif az network vnet subnet show --ids "$SUBNET_ID" >/dev/null 2>&1; then
+            echo "Existing subnet found. Importing into Terraform state."
+            terraform import azurerm_subnet.subnet "$SUBNET_ID"
+          else
+            echo "Subnet does not exist yet. Terraform will create it."
+          fi
+
+          if terraform state show azurerm_container_registry.acr >/dev/null 2>&1; then
+            echo "ACR already managed by Terraform state."
+          elif az acr show --ids "$ACR_ID" >/dev/null 2>&1; then
+            echo "Existing ACR found. Importing into Terraform state."
+            terraform import azurerm_container_registry.acr "$ACR_ID"
+          else
+            echo "ACR does not exist yet. Terraform will create it."
+          fi
+
+          if terraform state show azurerm_kubernetes_cluster.aks >/dev/null 2>&1; then
+            echo "AKS already managed by Terraform state."
+          elif az aks show --ids "$AKS_ID" >/dev/null 2>&1; then
+            echo "Existing AKS found. Importing into Terraform state."
+            terraform import azurerm_kubernetes_cluster.aks "$AKS_ID"
+          else
+            echo "AKS does not exist yet. Terraform will create it."
+          fi
+
+          STORAGE_ACCOUNT_NAME=$(az storage account list -g "${{ secrets.AZURE_RESOURCE_GROUP }}" --query "[?starts_with(name, 'fastapi')].name" -o tsv | head -n 1)
+          if [ -n "$STORAGE_ACCOUNT_NAME" ]; then
+            STORAGE_ID="${RG_ID}/providers/Microsoft.Storage/storageAccounts/${STORAGE_ACCOUNT_NAME}"
+            if terraform state show azurerm_storage_account.storage >/dev/null 2>&1; then
+              echo "Storage Account already managed."
+            else
+              echo "Importing existing Storage Account: $STORAGE_ACCOUNT_NAME"
+              terraform import azurerm_storage_account.storage "$STORAGE_ID"
+            fi
+
+            SHARE_ID="${STORAGE_ID}/fileServices/default/shares/postgres-data"
+            if terraform state show azurerm_storage_share.postgres_share >/dev/null 2>&1; then
+              echo "Storage Share already managed."
+            elif terraform import azurerm_storage_share.postgres_share "$SHARE_ID" >/dev/null 2>&1; then
+              echo "Attempted Storage Share import."
+            fi
+          fi
 
       - name: Terraform Apply
         working-directory: ./infra

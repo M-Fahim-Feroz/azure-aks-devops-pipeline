@@ -1,20 +1,19 @@
 # Terraform State Management
 
-## Current Behavior (Demo)
+## Current Behavior (Stateless CI)
 
-In this portfolio project, Terraform runs directly inside GitHub Actions without a remote backend.
+In this portfolio project, Terraform runs inside GitHub Actions using an uncommitted local state. Because GitHub-hosted runners are ephemeral, the state is **not persisted** between pipeline runs.
 
-This means:
-- The state file exists only on the GitHub Actions runner for the duration of the pipeline run.
-- The state is **not persisted** between pipeline runs.
-- Each pipeline run provisions infrastructure from scratch.
-- If a run fails mid-way, manual cleanup may be required.
+Why this is risky:
+- Terraform assumes a blank slate on every run.
+- It attempts to create resources that already exist, causing pipeline failures.
+- If an `apply` fails mid-way, you get "partial apply" resources orphaned in Azure.
 
-This is acceptable for a **demo portfolio project** where the goal is to demonstrate end-to-end pipeline execution.
+To make the pipeline robust without forcing a remote state backend immediately, the `.github/workflows/aks-cicd.yml` workflow includes a pre-flight "import script". It uses `az cli` to discover existing resources (like the Resource Group, VNet, Subnet, ACR, and AKS) and runs `terraform import` to dynamically pull them into the ephemeral state before `terraform apply`.
 
-## Recommended Production Approach (Azure Storage Backend)
+## Roadmap Item: Migrate Terraform state to Azure Storage remote backend
 
-For a production workload, use an Azure Storage remote backend:
+For true idempotency and safety, this project will eventually migrate to a remote backend.
 
 ### 1. Create the Backend Resources
 
@@ -37,41 +36,41 @@ az storage container create \
 
 ### 2. Configure the Backend in Terraform
 
-Add to `infra/main.tf`:
+Update `infra/providers.tf` to initialize the backend:
 
 ```hcl
 terraform {
   backend "azurerm" {
-    resource_group_name  = "tf-state-rg"
-    storage_account_name = "<STORAGE_ACCOUNT_NAME>"
-    container_name       = "tfstate"
-    key                  = "azure-aks-devops-pipeline.tfstate"
+    # resource_group_name  = "<state-rg>"
+    # storage_account_name = "<state-storage-account>"
+    # container_name       = "tfstate"
+    # key                  = "azure-aks-devops-pipeline.tfstate"
   }
 }
 ```
 
-### 3. Benefits of Remote Backend
+## Manual State Import Commands
 
-- **State locking:** Prevents concurrent modifications using Azure Blob lease locking.
-- **State persistence:** Survives pipeline runs; can be referenced by multiple team members.
-- **Versioning:** Azure Blob versioning provides state history and rollback.
-- **Encryption:** Azure Storage encrypts at rest by default.
-- **Access control:** State access is controlled by Azure RBAC.
+If you need to manually import resources into your local state, use the following syntax:
 
-### 4. GitHub Actions Configuration
+```bash
+# Resource Group
+terraform import azurerm_resource_group.rg /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP_NAME>
 
-With a remote backend, the workflow does not need to manage state between runs:
+# Virtual Network
+terraform import azurerm_virtual_network.vnet /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP_NAME>/providers/Microsoft.Network/virtualNetworks/fastapi-vnet
 
-```yaml
-- name: Terraform Init (Remote Backend)
-  working-directory: ./infra
-  env:
-    ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-    ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-    ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-    ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-  run: terraform init
+# AKS Cluster
+terraform import azurerm_kubernetes_cluster.aks /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP_NAME>/providers/Microsoft.ContainerService/managedClusters/<AKS_CLUSTER_NAME>
 ```
+
+## Partial Apply Recovery Steps
+
+If a GitHub Actions deployment fails mid-way, you might have orphaned resources.
+
+1. **Storage Accounts:** If a storage account was created but the pipeline failed, the next pipeline run will automatically find it via `az storage account list` and adopt it. The storage account name is now deterministically hashed so it won't endlessly orphan new accounts.
+2. **ACR / AKS:** If creation fails, log into the Azure Portal and delete the failed resource if it is in a corrupted `Failed` provisioning state.
+3. **Role Assignments:** Azure role assignments may be left behind. Terraform will usually gracefully overwrite or ignore them if the principal ID remains the same.
 
 ## State Security Notes
 
