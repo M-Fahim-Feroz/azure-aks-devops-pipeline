@@ -4,8 +4,14 @@ on:
   push:
     branches:
       - main
-      - shahzaib-dev
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
@@ -17,7 +23,11 @@ jobs:
   # 1. Build & Test
   # ---------------------------------------------------------------------
   build-and-test:
+    name: Build & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - name: Validate required GitHub secrets
         shell: bash
@@ -31,11 +41,13 @@ jobs:
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
+          set -euo pipefail
           missing=0
 
-          for name in AZURE_CREDENTIALS ACR_NAME ACR_LOGIN_SERVER AKS_CLUSTER_NAME AZURE_RESOURCE_GROUP POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD WEATHER_API_KEY; do
-            if [ -z "${!name}" ]; then
+          for name in AZURE_CREDENTIALS ACR_NAME ACR_LOGIN_SERVER AKS_CLUSTER_NAME AZURE_RESOURCE_GROUP POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD WEATHER_API_KEY GRAFANA_ADMIN_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
               echo "::error::$name is missing or empty. Add it in GitHub repository Settings > Secrets and variables > Actions."
               missing=1
             fi
@@ -51,24 +63,50 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: api/requirements.txt
 
       - name: Install Dependencies
         run: |
-          pip install flake8 pytest
+          set -euo pipefail
+          pip install --upgrade pip
+          pip install flake8 bandit pytest
           pip install -r api/requirements.txt
 
       - name: Linting (Flake8)
-        run: flake8 api/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        run: |
+          set -euo pipefail
+          flake8 api/ --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Security Scan (Bandit)
+        run: |
+          set -euo pipefail
+          bandit -r api/ -lll --exclude api/tests/
+
+      - name: Run Unit Tests
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+          CELERY_BROKER_URL: "memory://"
+          CELERY_RESULT_BACKEND: "cache+memory://"
+          WEATHER_API_KEY: "test-key"
+        run: |
+          set -euo pipefail
+          pytest api/tests/ -v --tb=short
 
   # ---------------------------------------------------------------------
   # 2. Infrastructure Provisioning (Terraform)
   # ---------------------------------------------------------------------
   provision-infra:
+    name: Provision Infrastructure (Terraform)
     needs: build-and-test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       storage_account_name: ${{ steps.tf-outputs.outputs.storage_account_name }}
     steps:
@@ -83,16 +121,19 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_wrapper: false  # Required for proper output parsing
+          terraform_wrapper: false
 
       - name: Extract ARM Credentials
         id: arm-creds
         run: |
-          # The ubuntu-latest runner includes jq by default
-          echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+          set -euo pipefail
+          # Parse AZURE_CREDENTIALS JSON and export as ARM_ env vars for Terraform.
+          # Values are masked by GitHub Actions secrets mechanism.
+          CREDS='${{ secrets.AZURE_CREDENTIALS }}'
+          echo "ARM_CLIENT_ID=$(echo "$CREDS" | jq -r .clientId)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(echo "$CREDS" | jq -r .clientSecret)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(echo "$CREDS" | jq -r .subscriptionId)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(echo "$CREDS" | jq -r .tenantId)" >> $GITHUB_ENV
 
       - name: Terraform Init
         working-directory: ./infra
@@ -101,9 +142,7 @@ jobs:
       - name: Terraform Apply
         working-directory: ./infra
         run: |
-          echo "Deploying AKS cluster: ${{ secrets.AKS_CLUSTER_NAME }}"
-          echo "Resource group: ${{ secrets.AZURE_RESOURCE_GROUP }}"
-          echo "ACR name: ${{ secrets.ACR_NAME }}"
+          set -euo pipefail
           terraform apply -auto-approve \
             -var="aks_name=${{ secrets.AKS_CLUSTER_NAME }}" \
             -var="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
@@ -113,14 +152,17 @@ jobs:
         id: tf-outputs
         working-directory: ./infra
         run: |
+          set -euo pipefail
           echo "storage_account_name=$(terraform output -raw storage_account_name)" >> $GITHUB_OUTPUT
 
   # ---------------------------------------------------------------------
   # 3. Docker Build & Push
   # ---------------------------------------------------------------------
   docker-build:
-    needs: [provision-infra]  # Wait for ACR to be created by Terraform
+    name: Docker Build & Push to ACR
+    needs: [provision-infra]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -145,23 +187,35 @@ jobs:
           context: .
           file: api/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/api:${{ env.IMAGE_TAG }},${{ env.REGISTRY }}/api:latest
+          tags: |
+            ${{ env.REGISTRY }}/api:${{ env.IMAGE_TAG }}
+            ${{ env.REGISTRY }}/api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build & Push Worker
         uses: docker/build-push-action@v5
         with:
           context: .
           file: api/Dockerfile
-          # Worker uses same image base, just different CMD
           push: true
-          tags: ${{ env.REGISTRY }}/worker:${{ env.IMAGE_TAG }},${{ env.REGISTRY }}/worker:latest
+          tags: |
+            ${{ env.REGISTRY }}/worker:${{ env.IMAGE_TAG }}
+            ${{ env.REGISTRY }}/worker:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------------
   # 4. Configuration & Deployment (Ansible + K8s)
   # ---------------------------------------------------------------------
   deploy-app:
+    name: Deploy Application (Ansible)
     needs: [docker-build, provision-infra]
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -186,12 +240,25 @@ jobs:
           namespace: ${{ env.NAMESPACE }}
           secret-type: 'generic'
           secret-name: fastapi-secrets
-          string-data: '{"POSTGRES_DB": "${{ secrets.POSTGRES_DB }}", "POSTGRES_USER": "${{ secrets.POSTGRES_USER }}", "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}", "DATABASE_URL": "postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}", "CELERY_BROKER_URL": "redis://redis:6379/0", "CELERY_RESULT_BACKEND": "redis://redis:6379/0", "WEATHER_API_KEY": "${{ secrets.WEATHER_API_KEY }}"}'
+          string-data: |-
+            {
+              "POSTGRES_DB": "${{ secrets.POSTGRES_DB }}",
+              "POSTGRES_USER": "${{ secrets.POSTGRES_USER }}",
+              "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}",
+              "DATABASE_URL": "postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/${{ secrets.POSTGRES_DB }}",
+              "CELERY_BROKER_URL": "redis://redis:6379/0",
+              "CELERY_RESULT_BACKEND": "redis://redis:6379/0",
+              "WEATHER_API_KEY": "${{ secrets.WEATHER_API_KEY }}"
+            }
 
       - name: Fetch Storage Key & Mask
         id: get-storage-key
         run: |
-          STORAGE_KEY=$(az storage account keys list -g ${{ secrets.AZURE_RESOURCE_GROUP }} -n ${{ needs.provision-infra.outputs.storage_account_name }} --query '[0].value' -o tsv)
+          set -euo pipefail
+          STORAGE_KEY=$(az storage account keys list \
+            -g ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            -n ${{ needs.provision-infra.outputs.storage_account_name }} \
+            --query '[0].value' -o tsv)
           echo "::add-mask::$STORAGE_KEY"
           echo "key=$STORAGE_KEY" >> $GITHUB_OUTPUT
 
@@ -201,60 +268,108 @@ jobs:
           namespace: ${{ env.NAMESPACE }}
           secret-type: 'generic'
           secret-name: azure-secret
-          string-data: '{"azurestorageaccountname": "${{ needs.provision-infra.outputs.storage_account_name }}", "azurestorageaccountkey": "${{ steps.get-storage-key.outputs.key }}"}'
-
+          string-data: |-
+            {
+              "azurestorageaccountname": "${{ needs.provision-infra.outputs.storage_account_name }}",
+              "azurestorageaccountkey": "${{ steps.get-storage-key.outputs.key }}"
+            }
 
       - name: Run Ansible Playbook
-        # We run Ansible to apply the manifests.
-        # This satisfies "Ansible deploy or kubectl apply"
         run: |
-          pip install ansible kubernetes openshift
-          ansible-playbook -i ansible/inventory.ini ansible/playbook.yaml -e "grafana_password=${{ secrets.POSTGRES_PASSWORD }}"
+          set -euo pipefail
+          pip install --quiet ansible kubernetes openshift
+          ansible-playbook -i ansible/inventory.ini ansible/playbook.yaml \
+            -e "grafana_password=${{ secrets.GRAFANA_ADMIN_PASSWORD }}"
 
       - name: Force Restart (Ensures latest image pull)
         run: |
+          set -euo pipefail
           kubectl rollout restart deployment/fastapi-api -n ${{ env.NAMESPACE }}
           kubectl rollout restart deployment/fastapi-worker -n ${{ env.NAMESPACE }}
+
+      - name: Wait for Rollout
+        run: |
+          set -euo pipefail
+          kubectl rollout status deployment/fastapi-api -n ${{ env.NAMESPACE }} --timeout=120s
+          kubectl rollout status deployment/fastapi-worker -n ${{ env.NAMESPACE }} --timeout=120s
 
   # ---------------------------------------------------------------------
   # 5. Post-Deploy Smoke Tests
   # ---------------------------------------------------------------------
   smoke-test:
+    name: Smoke Test
     needs: deploy-app
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-      
+
       - name: Set AKS Context
         uses: azure/aks-set-context@v4
         with:
           cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
           resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
 
-      - name: Debug - Show Pod Status
+      - name: Show Pod Status
+        if: always()
         run: |
           echo "=== Pod Status ==="
           kubectl get pods -n ${{ env.NAMESPACE }}
           echo ""
+          echo "=== Service Status ==="
+          kubectl get svc -n ${{ env.NAMESPACE }}
+
+      - name: Show Debug Logs on Failure
+        if: failure()
+        run: |
           echo "=== Pod Events ==="
           kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.lastTimestamp' | tail -20
           echo ""
           echo "=== API Pod Logs ==="
-          kubectl logs deployment/fastapi-api -n ${{ env.NAMESPACE }} --tail=30 || echo "No logs available"
+          kubectl logs deployment/fastapi-api -n ${{ env.NAMESPACE }} --tail=50 || echo "No logs available"
           echo ""
           echo "=== PostgreSQL Pod Logs ==="
           kubectl logs statefulset/postgres -n ${{ env.NAMESPACE }} --tail=20 || echo "No logs available"
 
-      - name: Verify Endpoints
+      - name: Verify Endpoint
         run: |
-          echo "Waiting for pods to be ready..."
-          sleep 60
-          echo "=== Service Status ==="
-          kubectl get svc -n ${{ env.NAMESPACE }}
-          EXTERNAL_IP=$(kubectl get service fastapi-service -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          echo "Checking Health at http://$EXTERNAL_IP/"
-          curl -f --connect-timeout 10 --max-time 30 http://$EXTERNAL_IP/ || echo "Health check failed - see debug logs above"
-          echo "Smoke Test Complete!"
+          set -euo pipefail
+
+          echo "Waiting for LoadBalancer IP to be assigned..."
+          for i in $(seq 1 12); do
+            EXTERNAL_IP=$(kubectl get service fastapi-service \
+              -n "$NAMESPACE" \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            if [ -n "$EXTERNAL_IP" ]; then
+              echo "LoadBalancer IP: $EXTERNAL_IP"
+              break
+            fi
+            echo "Attempt $i/12: IP not yet assigned, waiting 10s..."
+            sleep 10
+          done
+
+          if [ -z "$EXTERNAL_IP" ]; then
+            echo "::error::No external IP assigned to fastapi-service LoadBalancer after 120s."
+            kubectl get svc -n "$NAMESPACE"
+            exit 1
+          fi
+
+          echo "Running health check against http://$EXTERNAL_IP/"
+          curl \
+            --fail \
+            --retry 10 \
+            --retry-delay 15 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 30 \
+            "http://$EXTERNAL_IP/"
+
+          echo "Smoke test passed!"
+        env:
+          NAMESPACE: ${{ env.NAMESPACE }}

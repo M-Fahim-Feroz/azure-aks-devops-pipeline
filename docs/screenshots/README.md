@@ -5,6 +5,8 @@ This folder contains deployment proof for the Azure AKS DevOps pipeline, includi
 > Screenshots containing secrets, passwords, failed connection output, or sensitive credentials are intentionally excluded from this folder and moved to `_excluded/`.
 
 > **Note:** Some screenshots may show temporary public IPs or AKS hostnames from a short-lived demo deployment. Azure resources were intended to be deleted after proof capture to avoid ongoing cost.
+> 
+> **Privacy Warning:** Screenshots 08 and 09 may expose partial non-secret cloud identifiers (such as subscription IDs) and should be blurred before public publishing if desired.
 
 ---
 
