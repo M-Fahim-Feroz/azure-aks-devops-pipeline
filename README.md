@@ -1,5 +1,14 @@
 # Azure AKS DevOps Pipeline
 
+[![CI/CD Pipeline](https://github.com/M-Fahim-Feroz/azure-aks-devops-pipeline/actions/workflows/aks-cicd.yml/badge.svg)](https://github.com/M-Fahim-Feroz/azure-aks-devops-pipeline/actions/workflows/aks-cicd.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Azure](https://img.shields.io/badge/Azure-AKS-0078D4?logo=microsoftazure&logoColor=white)](https://azure.microsoft.com)
+[![Terraform](https://img.shields.io/badge/Terraform-1.x-7B42BC?logo=terraform&logoColor=white)](https://terraform.io)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://docker.com)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io)
+[![Ansible](https://img.shields.io/badge/Ansible-EE0000?logo=ansible&logoColor=white)](https://ansible.com)
+[![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)](https://python.org)
+
 A production-style, end-to-end DevOps portfolio project that provisions Azure infrastructure with Terraform, builds and pushes Docker images to ACR, deploys a FastAPI microservice stack to Azure Kubernetes Service, automates deployment with Ansible, and validates the rollout through a fully automated GitHub Actions pipeline with Prometheus and Grafana observability.
 
 > **Deployment Status:**  Successfully deployed and smoke-tested. Public FastAPI endpoint returned `{"status":"ok"}`.
@@ -16,6 +25,15 @@ Key highlights:
 - **Live smoke test** validates the public FastAPI endpoint at the end of every run
 - **kube-prometheus-stack** provides cluster-wide Prometheus metrics and Grafana dashboards
 - **Azure Storage remote backend** for Terraform state — idempotent and safe on repeated runs
+
+## Project Highlights
+
+- **End-to-end automation** — a single `git push` to `main` provisions Azure infrastructure, builds and pushes Docker images to ACR, deploys all Kubernetes workloads, and runs a live smoke test with zero manual steps
+- **Production-style remote state** — Terraform state is stored in Azure Blob Storage with a separate resource group and state sanity check in CI, preventing accidental recreation of existing resources
+- **DevSecOps pipeline** — Python code is linted with Flake8, security-scanned with Bandit, and tested with Pytest before any Docker build or deployment runs
+- **Ansible-driven Kubernetes deployment** — declarative playbook applies all manifests and installs the kube-prometheus-stack Helm chart idempotently on every pipeline run
+- **Full observability stack** — Prometheus scrapes cluster metrics; Grafana dashboards cover pods, nodes, kubelet, and node exporter out of the box
+- **Path-filtered infra provisioning** — Terraform only runs when `infra/**` files change, cutting pipeline time for app-only changes
 
 ---
 
@@ -50,6 +68,8 @@ GitHub Actions CI/CD
                └─ Wait for LoadBalancer IP
                └─ curl public endpoint → validate JSON response
 ```
+
+> See the [full architecture diagram](docs/architecture.md) with Mermaid flowcharts.
 
 ---
 
