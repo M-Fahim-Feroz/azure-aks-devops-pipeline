@@ -1,0 +1,157 @@
+name: Import Terraform State
+
+on:
+  workflow_dispatch:
+    inputs:
+      subscription_id:
+        description: 'Azure Subscription ID'
+        required: true
+      resource_group_name:
+        description: 'Azure Resource Group Name'
+        required: true
+        default: 'azure-aks-devops-rg'
+      aks_name:
+        description: 'AKS Cluster Name'
+        required: true
+        default: 'azure-aks-devops-cluster'
+      acr_name:
+        description: 'ACR Name'
+        required: true
+        default: 'fahimaksdevopsacr'
+      storage_account_name:
+        description: 'App Storage Account Name (e.g. fastapi5b3fd32c)'
+        required: true
+      tf_state_rg:
+        description: 'Terraform State Resource Group'
+        required: true
+        default: 'terraform-state-rg'
+      tf_state_storage_account:
+        description: 'Terraform State Storage Account'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  import-state:
+    name: Import Existing Resources to Terraform State
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Extract ARM Credentials
+        run: |
+          set -euo pipefail
+          CREDS='${{ secrets.AZURE_CREDENTIALS }}'
+          echo "ARM_CLIENT_ID=$(echo "$CREDS" | jq -r .clientId)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(echo "$CREDS" | jq -r .clientSecret)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(echo "$CREDS" | jq -r .subscriptionId)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(echo "$CREDS" | jq -r .tenantId)" >> $GITHUB_ENV
+
+      - name: Terraform Init
+        working-directory: ./infra
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ github.event.inputs.tf_state_rg }}" \
+            -backend-config="storage_account_name=${{ github.event.inputs.tf_state_storage_account }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=azure-aks-devops-pipeline.tfstate" \
+            -input=false
+
+      - name: Import Resources
+        working-directory: ./infra
+        run: |
+          set -euo pipefail
+
+          SUB_ID="${{ github.event.inputs.subscription_id }}"
+          RG_NAME="${{ github.event.inputs.resource_group_name }}"
+          AKS_NAME="${{ github.event.inputs.aks_name }}"
+          ACR_NAME="${{ github.event.inputs.acr_name }}"
+          SA_NAME="${{ github.event.inputs.storage_account_name }}"
+
+          RG_ID="/subscriptions/${SUB_ID}/resourceGroups/${RG_NAME}"
+          VNET_ID="${RG_ID}/providers/Microsoft.Network/virtualNetworks/fastapi-vnet"
+          SUBNET_ID="${VNET_ID}/subnets/fastapi-subnet"
+          ACR_ID="${RG_ID}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}"
+          AKS_ID="${RG_ID}/providers/Microsoft.ContainerService/managedClusters/${AKS_NAME}"
+          STORAGE_ID="${RG_ID}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}"
+          SHARE_ID="${STORAGE_ID}/fileServices/default/shares/postgres-data"
+
+          # Get current state
+          STATE_LIST=$(terraform state list || echo "")
+
+          function import_if_missing() {
+            local resource=$1
+            local id=$2
+            if echo "$STATE_LIST" | grep -q "^${resource}$"; then
+              echo "  [SKIP] $resource is already in state."
+            else
+              echo "  [IMPORT] Importing $resource ..."
+              terraform import "$resource" "$id"
+            fi
+          }
+
+          echo "Importing resources..."
+          import_if_missing "azurerm_resource_group.rg" "$RG_ID"
+          import_if_missing "azurerm_virtual_network.vnet" "$VNET_ID"
+          import_if_missing "azurerm_subnet.subnet" "$SUBNET_ID"
+          import_if_missing "azurerm_container_registry.acr" "$ACR_ID"
+          import_if_missing "azurerm_kubernetes_cluster.aks" "$AKS_ID"
+          import_if_missing "azurerm_storage_account.storage" "$STORAGE_ID"
+          import_if_missing "azurerm_storage_share.postgres_share" "$SHARE_ID"
+
+          echo "Checking for AKS to ACR role assignment..."
+          if echo "$STATE_LIST" | grep -q "^azurerm_role_assignment.aks_acr_pull$"; then
+            echo "  [SKIP] azurerm_role_assignment.aks_acr_pull is already in state."
+          else
+            echo "Retrieving kubelet identity..."
+            KUBELET_ID=$(az aks show --resource-group "$RG_NAME" --name "$AKS_NAME" --query "identityProfile.kubeletidentity.objectId" -o tsv || true)
+            if [ -z "$KUBELET_ID" ]; then
+              echo "  [WARN] Could not retrieve kubelet identity. Skipping role assignment import."
+            else
+              echo "Finding AcrPull role assignment for $KUBELET_ID on $ACR_ID ..."
+              ROLE_ID=$(az role assignment list --scope "$ACR_ID" --role "AcrPull" --query "[?principalId=='$KUBELET_ID'].id | [0]" -o tsv || true)
+              if [ -n "$ROLE_ID" ]; then
+                echo "  [IMPORT] Importing azurerm_role_assignment.aks_acr_pull ..."
+                terraform import azurerm_role_assignment.aks_acr_pull "$ROLE_ID"
+              else
+                echo "  [SKIP] No existing role assignment found."
+              fi
+            fi
+          fi
+
+      - name: Terraform Plan
+        working-directory: ./infra
+        run: |
+          set -euo pipefail
+          terraform plan -input=false \
+            -var="resource_group_name=${{ github.event.inputs.resource_group_name }}" \
+            -var="aks_name=${{ github.event.inputs.aks_name }}" \
+            -var="acr_name=${{ github.event.inputs.acr_name }}" \
+            -var="storage_account_name=${{ github.event.inputs.storage_account_name }}" \
+            -detailed-exitcode || EXIT_CODE=$?
+
+          if [ "${EXIT_CODE:-0}" -eq 1 ]; then
+            echo "::error::Terraform plan failed."
+            exit 1
+          elif [ "${EXIT_CODE:-0}" -eq 2 ]; then
+            echo "::error::Terraform plan indicates destructive changes or resources to add. Please review manually."
+            exit 1
+          fi
+          echo "Terraform plan succeeded with no changes."
+
+      - name: Final State List
+        working-directory: ./infra
+        run: terraform state list

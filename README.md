@@ -314,15 +314,44 @@ terraform init \
 
 ### Step 4: Import Existing Azure Resources into Remote State
 
-If your infrastructure already exists in Azure, import it so Terraform won't try to recreate it:
+If your infrastructure already exists in Azure, import it so Terraform won't try to recreate it.
+
+#### Windows / PowerShell Migration Script
+
+If you are on Windows, you can use the included PowerShell script. Open a PowerShell terminal and run:
+
+```powershell
+$SUBSCRIPTION_ID="98f80b4a-c870-4a33-be5d-911ce933a22c"
+$RESOURCE_GROUP="azure-aks-devops-rg"
+$AKS_NAME="azure-aks-devops-cluster"
+$ACR_NAME="fahimaksdevopsacr"
+$STORAGE_ACCOUNT_NAME="fastapi5b3fd32c"
+$TF_STATE_RG="terraform-state-rg"
+$TF_STATE_STORAGE_ACCOUNT="<your tfstate storage account name>"
+
+.\scripts\import-terraform-state.ps1 `
+  -SubscriptionId $SUBSCRIPTION_ID `
+  -ResourceGroup $RESOURCE_GROUP `
+  -AksName $AKS_NAME `
+  -AcrName $ACR_NAME `
+  -StorageAccountName $STORAGE_ACCOUNT_NAME `
+  -TfStateRg $TF_STATE_RG `
+  -TfStateStorageAccount $TF_STATE_STORAGE_ACCOUNT
+```
+
+> **Note on Storage Account Update:** The old Kubernetes secret for PostgreSQL previously pointed to a deleted storage account (`fastapi00d37c175744e902`). The correct app storage account to use now is **`fastapi5b3fd32c`** as shown in the script above.
+
+#### Manual Bash Import Commands
+
+If you prefer to run the import manually in Bash:
 
 ```bash
 # Set your values
-SUBSCRIPTION_ID="<SUBSCRIPTION_ID>"
-RESOURCE_GROUP="<RESOURCE_GROUP_NAME>"    # e.g. azure-aks-devops-rg
-ACR_NAME="<ACR_NAME>"                      # e.g. fahimaksdevopsacr
-AKS_NAME="<AKS_CLUSTER_NAME>"             # e.g. azure-aks-devops-cluster
-STORAGE_ACCOUNT="<STORAGE_ACCOUNT_NAME>"  # e.g. fastapiaksstore
+SUBSCRIPTION_ID="98f80b4a-c870-4a33-be5d-911ce933a22c"
+RESOURCE_GROUP="azure-aks-devops-rg"
+ACR_NAME="fahimaksdevopsacr"
+AKS_NAME="azure-aks-devops-cluster"
+STORAGE_ACCOUNT="fastapi5b3fd32c"
 
 # 1. Resource Group
 terraform import azurerm_resource_group.rg \

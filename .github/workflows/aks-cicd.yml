@@ -189,6 +189,23 @@ jobs:
         working-directory: ./infra
         run: terraform validate
 
+      - name: State Sanity Check
+        working-directory: ./infra
+        run: |
+          set -euo pipefail
+          # Count lines in state list
+          STATE_COUNT=$(terraform state list 2>/dev/null | wc -l || echo 0)
+          if [ "$STATE_COUNT" -eq 0 ]; then
+            echo "Terraform state is empty."
+            # Check if the Resource Group exists in Azure
+            if az group show --name "${{ secrets.AZURE_RESOURCE_GROUP }}" >/dev/null 2>&1; then
+              echo "::error::Remote Terraform state is empty but Azure resources already exist. Run the one-time state import workflow or scripts/import-terraform-state.ps1 before running terraform apply."
+              exit 1
+            fi
+          else
+            echo "Terraform state contains $STATE_COUNT resources."
+          fi
+
       - name: Terraform Apply
         working-directory: ./infra
         run: |
