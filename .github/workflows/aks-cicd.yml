@@ -42,11 +42,13 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          TF_STATE_RG: ${{ secrets.TF_STATE_RG }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
         run: |
           set -euo pipefail
           missing=0
 
-          for name in AZURE_CREDENTIALS ACR_NAME ACR_LOGIN_SERVER AKS_CLUSTER_NAME AZURE_RESOURCE_GROUP POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD WEATHER_API_KEY GRAFANA_ADMIN_PASSWORD; do
+          for name in AZURE_CREDENTIALS ACR_NAME ACR_LOGIN_SERVER AKS_CLUSTER_NAME AZURE_RESOURCE_GROUP POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD WEATHER_API_KEY GRAFANA_ADMIN_PASSWORD TF_STATE_RG TF_STATE_STORAGE_ACCOUNT; do
             if [ -z "${!name:-}" ]; then
               echo "::error::$name is missing or empty. Add it in GitHub repository Settings > Secrets and variables > Actions."
               missing=1
@@ -112,6 +114,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Azure Login
         uses: azure/login@v2
@@ -137,86 +141,31 @@ jobs:
 
       - name: Terraform Init
         working-directory: ./infra
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=azure-aks-devops-pipeline.tfstate"
 
-      - name: Import existing resources into Terraform state if needed
+      - name: Check for infra changes
+        id: check-infra
         working-directory: ./infra
-        shell: bash
         run: |
           set -euo pipefail
-
-          SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
-
-          RG_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}"
-          VNET_ID="${RG_ID}/providers/Microsoft.Network/virtualNetworks/fastapi-vnet"
-          SUBNET_ID="${VNET_ID}/subnets/fastapi-subnet"
-          ACR_ID="${RG_ID}/providers/Microsoft.ContainerRegistry/registries/${{ secrets.ACR_NAME }}"
-          AKS_ID="${RG_ID}/providers/Microsoft.ContainerService/managedClusters/${{ secrets.AKS_CLUSTER_NAME }}"
-
-          if terraform state show azurerm_resource_group.rg >/dev/null 2>&1; then
-            echo "Resource Group already managed by Terraform state."
-          elif az group show --name "${{ secrets.AZURE_RESOURCE_GROUP }}" >/dev/null 2>&1; then
-            echo "Existing Resource Group found. Importing into Terraform state."
-            terraform import azurerm_resource_group.rg "$RG_ID"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Triggered manually via workflow_dispatch."
+          elif git diff --name-only HEAD~1 HEAD | grep -q '^infra/'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Changes detected in infra/ folder."
           else
-            echo "Resource Group does not exist yet. Terraform will create it."
-          fi
-
-          if terraform state show azurerm_virtual_network.vnet >/dev/null 2>&1; then
-            echo "VNet already managed by Terraform state."
-          elif az network vnet show --ids "$VNET_ID" >/dev/null 2>&1; then
-            echo "Existing VNet found. Importing into Terraform state."
-            terraform import azurerm_virtual_network.vnet "$VNET_ID"
-          else
-            echo "VNet does not exist yet. Terraform will create it."
-          fi
-
-          if terraform state show azurerm_subnet.subnet >/dev/null 2>&1; then
-            echo "Subnet already managed by Terraform state."
-          elif az network vnet subnet show --ids "$SUBNET_ID" >/dev/null 2>&1; then
-            echo "Existing subnet found. Importing into Terraform state."
-            terraform import azurerm_subnet.subnet "$SUBNET_ID"
-          else
-            echo "Subnet does not exist yet. Terraform will create it."
-          fi
-
-          if terraform state show azurerm_container_registry.acr >/dev/null 2>&1; then
-            echo "ACR already managed by Terraform state."
-          elif az acr show --ids "$ACR_ID" >/dev/null 2>&1; then
-            echo "Existing ACR found. Importing into Terraform state."
-            terraform import azurerm_container_registry.acr "$ACR_ID"
-          else
-            echo "ACR does not exist yet. Terraform will create it."
-          fi
-
-          if terraform state show azurerm_kubernetes_cluster.aks >/dev/null 2>&1; then
-            echo "AKS already managed by Terraform state."
-          elif az aks show --ids "$AKS_ID" >/dev/null 2>&1; then
-            echo "Existing AKS found. Importing into Terraform state."
-            terraform import azurerm_kubernetes_cluster.aks "$AKS_ID"
-          else
-            echo "AKS does not exist yet. Terraform will create it."
-          fi
-
-          STORAGE_ACCOUNT_NAME=$(az storage account list -g "${{ secrets.AZURE_RESOURCE_GROUP }}" --query "[?starts_with(name, 'fastapi')].name" -o tsv | head -n 1)
-          if [ -n "$STORAGE_ACCOUNT_NAME" ]; then
-            STORAGE_ID="${RG_ID}/providers/Microsoft.Storage/storageAccounts/${STORAGE_ACCOUNT_NAME}"
-            if terraform state show azurerm_storage_account.storage >/dev/null 2>&1; then
-              echo "Storage Account already managed."
-            else
-              echo "Importing existing Storage Account: $STORAGE_ACCOUNT_NAME"
-              terraform import azurerm_storage_account.storage "$STORAGE_ID"
-            fi
-
-            SHARE_ID="${STORAGE_ID}/fileServices/default/shares/postgres-data"
-            if terraform state show azurerm_storage_share.postgres_share >/dev/null 2>&1; then
-              echo "Storage Share already managed."
-            elif terraform import azurerm_storage_share.postgres_share "$SHARE_ID" >/dev/null 2>&1; then
-              echo "Attempted Storage Share import."
-            fi
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes detected in infra/ folder."
           fi
 
       - name: Terraform Apply
+        if: steps.check-infra.outputs.changed == 'true'
         working-directory: ./infra
         run: |
           set -euo pipefail
@@ -226,6 +175,7 @@ jobs:
             -var="acr_name=${{ secrets.ACR_NAME }}"
 
       - name: Get Terraform Outputs
+        if: steps.check-infra.outputs.changed == 'true'
         id: tf-outputs
         working-directory: ./infra
         run: |
@@ -332,12 +282,18 @@ jobs:
         id: get-storage-key
         run: |
           set -euo pipefail
+          STORAGE_ACCOUNT_NAME=$(az storage account list -g ${{ secrets.AZURE_RESOURCE_GROUP }} --query "[?starts_with(name, 'fastapi')].name" -o tsv | head -n 1)
+          if [ -z "$STORAGE_ACCOUNT_NAME" ]; then
+            echo "::error::No storage account found matching 'fastapi*' in resource group."
+            exit 1
+          fi
           STORAGE_KEY=$(az storage account keys list \
             -g ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            -n ${{ needs.provision-infra.outputs.storage_account_name }} \
+            -n $STORAGE_ACCOUNT_NAME \
             --query '[0].value' -o tsv)
           echo "::add-mask::$STORAGE_KEY"
           echo "key=$STORAGE_KEY" >> $GITHUB_OUTPUT
+          echo "account=$STORAGE_ACCOUNT_NAME" >> $GITHUB_OUTPUT
 
       - name: Create Azure Storage Secret
         uses: azure/k8s-create-secret@v4
@@ -347,7 +303,7 @@ jobs:
           secret-name: azure-secret
           string-data: |-
             {
-              "azurestorageaccountname": "${{ needs.provision-infra.outputs.storage_account_name }}",
+              "azurestorageaccountname": "${{ steps.get-storage-key.outputs.account }}",
               "azurestorageaccountkey": "${{ steps.get-storage-key.outputs.key }}"
             }
 
