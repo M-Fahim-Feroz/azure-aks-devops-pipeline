@@ -1,5 +1,7 @@
 name: Deploy to AKS (API + Celery)
 
+# TODO: For production-grade supply-chain security, pin third-party GitHub Actions to full commit SHAs.
+
 on:
   push:
     branches:

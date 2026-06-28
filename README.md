@@ -442,7 +442,14 @@ All `terraform init` and `terraform apply` calls use `-input=false`. If you see 
 
 ---
 
-## Cleanup
+## Release & Changelog
+### Suggested First Release
+- **v1.0.0**: Initial portfolio-ready release.
+  - Includes full CI/CD pipeline, security cleanup, and structured deployment documentation.
+- See `CHANGELOG.md` for a complete history of updates.
+- It is highly recommended to leverage [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases) to bundle version tags cleanly.
+
+## Clean Up
 
 > [!CAUTION]
 > This project provisions real Azure resources (AKS, ACR, LoadBalancers, Storage) which incur cost. Always destroy infrastructure after testing.
