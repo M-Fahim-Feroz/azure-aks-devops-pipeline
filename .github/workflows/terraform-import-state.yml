@@ -87,7 +87,7 @@ jobs:
           ACR_ID="${RG_ID}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}"
           AKS_ID="${RG_ID}/providers/Microsoft.ContainerService/managedClusters/${AKS_NAME}"
           STORAGE_ID="${RG_ID}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}"
-          SHARE_ID="${STORAGE_ID}/fileServices/default/shares/postgres-data"
+          SHARE_URL="https://${SA_NAME}.file.core.windows.net/postgres-data"
 
           # Get current state
           STATE_LIST=$(terraform state list || echo "")
@@ -110,7 +110,7 @@ jobs:
           import_if_missing "azurerm_container_registry.acr" "$ACR_ID"
           import_if_missing "azurerm_kubernetes_cluster.aks" "$AKS_ID"
           import_if_missing "azurerm_storage_account.storage" "$STORAGE_ID"
-          import_if_missing "azurerm_storage_share.postgres_share" "$SHARE_ID"
+          import_if_missing "azurerm_storage_share.postgres_share" "$SHARE_URL"
 
           echo "Checking for AKS to ACR role assignment..."
           if echo "$STATE_LIST" | grep -q "^azurerm_role_assignment.aks_acr_pull$"; then

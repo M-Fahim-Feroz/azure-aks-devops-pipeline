@@ -52,6 +52,12 @@ resource "azurerm_kubernetes_cluster" "aks" {
     name       = "default"
     node_count = var.node_count
     vm_size    = var.node_vm_size
+
+    upgrade_settings {
+      max_surge                     = "10%"
+      drain_timeout_in_minutes      = 0
+      node_soak_duration_in_minutes = 0
+    }
   }
 
   identity {
@@ -63,7 +69,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 
   oidc_issuer_enabled       = true
-  workload_identity_enabled = true
+  workload_identity_enabled = false
 }
 
 # -------------------------------

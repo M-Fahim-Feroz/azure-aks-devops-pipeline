@@ -64,8 +64,8 @@ Import-Resource -ResourceAddress "azurerm_kubernetes_cluster.aks" -AzureId $AksI
 $StorageId = "$RgId/providers/Microsoft.Storage/storageAccounts/$StorageAccountName"
 Import-Resource -ResourceAddress "azurerm_storage_account.storage" -AzureId $StorageId
 
-$ShareId = "$StorageId/fileServices/default/shares/postgres-data"
-Import-Resource -ResourceAddress "azurerm_storage_share.postgres_share" -AzureId $ShareId
+$ShareUrl = "https://${StorageAccountName}.file.core.windows.net/postgres-data"
+Import-Resource -ResourceAddress "azurerm_storage_share.postgres_share" -AzureId $ShareUrl
 
 Write-Host "  Checking for AKS to ACR role assignment..."
 if ($currentState -contains "azurerm_role_assignment.aks_acr_pull") {
