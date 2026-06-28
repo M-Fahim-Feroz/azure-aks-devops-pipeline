@@ -497,3 +497,16 @@ This project builds on the foundations demonstrated in my other DevOps portfolio
 ## For Detailed Deployment Steps
 
 See [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md) for step-by-step Azure setup, service principal creation, and pipeline trigger instructions.
+
+---
+
+## Suggested Release
+
+- **Suggested first release:** 1.0.0
+- **Title:** Initial Production Release
+- **Release notes:**
+  - Implemented full CI/CD pipeline automation
+  - Added security scanning and linting gates
+  - Containerized components with multi-stage Docker builds
+  - Established Infrastructure-as-Code definitions
+  - Configured remote state management and backend tracking
