@@ -1,4 +1,4 @@
-﻿# Azure Deployment Guide
+# Azure Deployment Guide
 
 Complete step-by-step guide to deploy this Azure AKS DevOps pipeline project.
 
@@ -77,6 +77,10 @@ Go to your GitHub repo → **Settings** → **Secrets and variables** → **Acti
 | `POSTGRES_USER` | `admin` |
 | `POSTGRES_PASSWORD` | `<your-secure-password>` |
 | `WEATHER_API_KEY` | `demo` (or your real API key) |
+| `GRAFANA_ADMIN_PASSWORD` | `<your-secure-password>` |
+| `AZURE_STORAGE_ACCOUNT_NAME` | `fastapiaksstore` (See README) |
+| `TF_STATE_RG` | `terraform-state-rg` (See README) |
+| `TF_STATE_STORAGE_ACCOUNT` | `tfstate12345678` (See README) |
 
 > **Security note:** Do not commit secret values. Storage account credentials are automatically fetched during the pipeline run using Azure CLI — no manual setup needed.
 
@@ -94,7 +98,7 @@ git push origin main
 
 ### What the pipeline does automatically
 
-1.  **Secret validation** — preflight check for all 9 required secrets
+1.  **Secret validation** — preflight check for all 13 required secrets
 2.  **Build & Test** — Flake8 lint, Bandit security scan, Pytest unit tests
 3.  **Terraform Apply** — provisions Resource Group, VNet, AKS, ACR, Storage Account
 4.  **Docker Build** — builds and pushes `api` and `worker` images to ACR

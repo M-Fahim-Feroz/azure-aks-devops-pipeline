@@ -20,7 +20,7 @@ This folder contains deployment proof for the Azure AKS DevOps pipeline, includi
 | [04-github-actions-docker-build-push-success.png](04-github-actions-docker-build-push-success.png) | docker-build job showing ACR login, Build & Push API, and Build & Push Worker steps all succeeded. |
 | [05-github-actions-deploy-app-success.png](05-github-actions-deploy-app-success.png) | deploy-app job showing AKS context setup, Ansible playbook run, and force restart steps succeeded. |
 | [06-github-actions-ansible-playbook-success.png](06-github-actions-ansible-playbook-success.png) | Ansible playbook output showing manifest deployment, Helm repo setup, Prometheus/Grafana install, and PLAY RECAP with ok=8, changed=4, failed=0. |
-| [07-github-actions-smoke-test-success.png](07-github-actions-smoke-test-success.png) | Smoke test job with Verify Endpoints step expanded, showing LoadBalancer service status and `"Alperen":"Cubuk"` endpoint response confirming successful deployment. |
+| [07-github-actions-smoke-test-success.png](07-github-actions-smoke-test-success.png) | Smoke test job with Verify Endpoints step expanded, showing LoadBalancer service status and endpoint response confirming successful deployment. |
 
 ---
 
@@ -51,7 +51,7 @@ This folder contains deployment proof for the Azure AKS DevOps pipeline, includi
 |---|---|
 | [15-kubectl-all-fastapi.png](15-kubectl-all-fastapi.png) | `kubectl get all -n fastapi` output showing all pods Running: fastapi-api (2 replicas), fastapi-worker, postgres StatefulSet, and redis — plus services and replicasets. |
 | [16-kubectl-services-loadbalancer.png](16-kubectl-services-loadbalancer.png) | `kubectl get svc -n fastapi` showing fastapi-service as LoadBalancer with public external IP 40.119.215.246 on port 80. |
-| [17-fastapi-public-endpoint.png](17-fastapi-public-endpoint.png) | Browser showing the FastAPI public endpoint at the LoadBalancer IP returning `{"Alperen":"Cubuk"}`, confirming successful end-to-end deployment. |
+| [17-fastapi-public-endpoint.png](17-fastapi-public-endpoint.png) | Browser showing the FastAPI public endpoint at the LoadBalancer IP returning `{"status":"ok"}`, confirming successful end-to-end deployment. |
 
 ---
 
