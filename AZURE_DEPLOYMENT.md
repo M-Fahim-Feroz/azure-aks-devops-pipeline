@@ -3,7 +3,7 @@
 Complete step-by-step guide to deploy this Azure AKS DevOps pipeline project.
 
 > **Deployment Status:** ✅ Successfully deployed and validated through GitHub Actions.
-> FastAPI endpoint responded with `{"Alperen":"Cubuk"}`. Prometheus/Grafana monitoring stack confirmed UP.
+> FastAPI endpoint responded with `{"status":"ok"}`. Prometheus/Grafana monitoring stack confirmed UP.
 > Screenshots are stored under `docs/screenshots/`.
 
 ---
@@ -138,7 +138,7 @@ kubectl port-forward svc/monitoring-grafana -n monitoring 3000:80
 ```
 
 - **Grafana URL:** `http://localhost:3000`
-- **Login:** `admin` / `<your-GRAFANA_ADMIN_PASSWORD>`
+- **Login:** `admin` / `<your-GRAFANA_ADMIN_PASSWORD>` (configured via GitHub Secrets)
 - **Dashboards available:** Kubernetes Cluster, Namespace Pods, Node Exporter, Kubelet
 
 ```bash

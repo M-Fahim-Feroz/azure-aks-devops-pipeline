@@ -72,7 +72,11 @@ if FRONTEND_DIR.exists():
 @app.get("/")
 def read_root():
     """Root endpoint for health check."""
-    return {"Alperen": "Cubuk"}
+    return {
+        "service": "azure-aks-devops-pipeline",
+        "owner": "M-Fahim-Feroz",
+        "status": "ok"
+    }
 
 
 @app.get("/ui", response_class=HTMLResponse)

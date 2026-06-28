@@ -2,7 +2,7 @@
 
 A production-style, end-to-end DevOps portfolio project that provisions Azure infrastructure with Terraform, builds and pushes Docker images to ACR, deploys a FastAPI microservice stack to Azure Kubernetes Service, automates deployment with Ansible, and validates the rollout through a fully automated GitHub Actions pipeline with Prometheus and Grafana observability.
 
-> **Deployment Status:**  Successfully deployed and smoke-tested. Public FastAPI endpoint returned `{"Alperen":"Cubuk"}`.
+> **Deployment Status:** ✅ Successfully deployed and smoke-tested. Public FastAPI endpoint returned `{"status":"ok"}`.
 
 ---
 
@@ -142,7 +142,7 @@ The **kube-prometheus-stack** is installed via Helm into the `monitoring` namesp
 Access Grafana locally:
 ```bash
 kubectl port-forward svc/monitoring-grafana -n monitoring 3000:80
-# Open http://localhost:3000  (login: admin / your-GRAFANA_ADMIN_PASSWORD)
+# Open http://localhost:3000  (login: admin / your-GRAFANA_ADMIN_PASSWORD from GitHub Secrets)
 ```
 
 ---

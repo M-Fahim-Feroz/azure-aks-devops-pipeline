@@ -100,7 +100,6 @@ def task_add_weather(city: str, delay: int):
 
     headers = {
         "content-type": "application/json",
-        # "authorization": "apikey 4HKS8SXTYAsGz45l4yIo9P:0NVczbcuJfjQb8PW7hQV48",
         "authorization": f"apikey {WEATHER_API_KEY}",
     }
 
