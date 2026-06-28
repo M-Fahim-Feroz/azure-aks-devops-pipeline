@@ -6,7 +6,7 @@ This is a portfolio demonstration project. No production version is currently ma
 
 | Version | Supported |
 |---------|----------|
-| main    | ✅ Yes (latest) |
+| main    |  Yes (latest) |
 
 ## Reporting a Vulnerability
 
