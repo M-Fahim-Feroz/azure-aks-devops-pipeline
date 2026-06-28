@@ -138,7 +138,7 @@ kubectl port-forward svc/monitoring-grafana -n monitoring 3000:80
 ```
 
 - **Grafana URL:** `http://localhost:3000`
-- **Login:** `admin` / `admin`
+- **Login:** `admin` / `<your-GRAFANA_ADMIN_PASSWORD>`
 - **Dashboards available:** Kubernetes Cluster, Namespace Pods, Node Exporter, Kubelet
 
 ```bash
@@ -176,9 +176,8 @@ curl http://<EXTERNAL-IP>/
 
 - Deployed on **Azure for Students** subscription in **Southeast Asia** region
 - AKS cluster uses a **single demo node** (Standard_DS2_v2)
-- Terraform state is managed locally within GitHub Actions (not committed to the repository)
-- **For production:** Use a remote Terraform backend (e.g. Azure Storage Account with state locking)
-- Failed partial pipeline runs may leave partial Azure resources. If re-running after a failure, delete the resource group manually first: `az group delete --name azure-aks-devops-rg --yes --no-wait`
+- Terraform state is managed remotely using an **Azure Storage backend**, ensuring idempotency across pipeline runs.
+- Failed partial pipeline runs can be safely retried because Terraform remote state handles drift and existing resources automatically.
 
 ---
 

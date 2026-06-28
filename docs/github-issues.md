@@ -100,7 +100,7 @@ The README and deployment guide should include an estimated cost for a full pipe
 
 **Acceptance Criteria:**
 - [ ] Estimated Azure cost per run documented
-- [ ] Demo limitations clearly noted (single node, no HA, local state)
+- [ ] Demo limitations clearly noted (single node, no HA)
 - [ ] Cleanup command prominently placed
 
 ---

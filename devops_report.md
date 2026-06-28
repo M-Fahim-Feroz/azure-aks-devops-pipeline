@@ -44,17 +44,13 @@ This ensures quality gates: no deployment without passing tests.
 
 2.  **Production (Kubernetes on Azure AKS)**:
     - Secrets are managed via **GitHub Repository Secrets**.
-    - During the CI/CD pipeline, these secrets are injected into Kubernetes using `azure/k8s-create-secret@v4`.
-    - The `k8s/secrets.yaml` and `k8s/storage-azure.yaml` files contain *placeholders only* (templates).
+    - During the CI/CD pipeline, these secrets are securely passed to **Ansible**, which templates them into the Kubernetes manifests.
+    - The Ansible templates in `ansible/templates/` contain *placeholders only*.
 
 3.  **Required GitHub Secrets**:
     | Secret Name | Purpose |
     |-------------|---------|
-    | `AZURE_CREDENTIALS` | Azure Service Principal JSON for authentication |
-    | `ARM_CLIENT_ID` | Terraform Azure authentication |
-    | `ARM_CLIENT_SECRET` | Terraform Azure authentication |
-    | `ARM_SUBSCRIPTION_ID` | Terraform Azure subscription |
-    | `ARM_TENANT_ID` | Terraform Azure tenant |
+    | `AZURE_CREDENTIALS` | Azure Service Principal JSON for authentication (includes ARM variables) |
     | `ACR_LOGIN_SERVER` | Azure Container Registry URL |
     | `ACR_NAME` | Azure Container Registry name |
     | `AKS_CLUSTER_NAME` | Azure Kubernetes Service cluster name |
@@ -63,8 +59,9 @@ This ensures quality gates: no deployment without passing tests.
     | `POSTGRES_USER` | PostgreSQL username |
     | `POSTGRES_PASSWORD` | PostgreSQL password |
     | `WEATHER_API_KEY` | Weather API integration key |
-    
-    > **Note**: `AZURE_STORAGE_ACCOUNT_NAME` and `AZURE_STORAGE_ACCOUNT_KEY` are automatically fetched from Terraform outputs during pipeline execution - no manual setup required!
+    | `AZURE_STORAGE_ACCOUNT_NAME` | Azure Storage Account name for persistent storage |
+    | `TF_STATE_RG` | Terraform State Azure resource group name |
+    | `TF_STATE_STORAGE_ACCOUNT` | Terraform State Azure storage account name |
 
 ## Testing Process
 - **Unit Tests**: Test individual functions in api/.
