@@ -42,18 +42,35 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
           TF_STATE_RG: ${{ secrets.TF_STATE_RG }}
           TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
         run: |
           set -euo pipefail
           missing=0
 
-          for name in AZURE_CREDENTIALS ACR_NAME ACR_LOGIN_SERVER AKS_CLUSTER_NAME AZURE_RESOURCE_GROUP POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD WEATHER_API_KEY GRAFANA_ADMIN_PASSWORD TF_STATE_RG TF_STATE_STORAGE_ACCOUNT; do
+          check_secret() {
+            local name="$1"
+            local hint="${2:-}"
             if [ -z "${!name:-}" ]; then
-              echo "::error::$name is missing or empty. Add it in GitHub repository Settings > Secrets and variables > Actions."
+              echo "::error::${name} is missing or empty.${hint:+ $hint}"
               missing=1
             fi
-          done
+          }
+
+          check_secret AZURE_CREDENTIALS "Add it under GitHub Repository Settings -> Secrets and variables -> Actions."
+          check_secret ACR_NAME "Set to: fahimaksdevopsacr"
+          check_secret ACR_LOGIN_SERVER "Set to: fahimaksdevopsacr.azurecr.io"
+          check_secret AKS_CLUSTER_NAME
+          check_secret AZURE_RESOURCE_GROUP
+          check_secret POSTGRES_DB
+          check_secret POSTGRES_USER
+          check_secret POSTGRES_PASSWORD
+          check_secret WEATHER_API_KEY
+          check_secret GRAFANA_ADMIN_PASSWORD
+          check_secret AZURE_STORAGE_ACCOUNT_NAME "This must be the Azure Storage Account name used for the PostgreSQL file share. See README for setup."
+          check_secret TF_STATE_RG "This must be the Resource Group containing the Terraform remote state storage account. See README -> Terraform Remote State Setup."
+          check_secret TF_STATE_STORAGE_ACCOUNT "This must be the Azure Storage Account used for Terraform remote state. See README -> Terraform Remote State Setup."
 
           if [ "$missing" -eq 1 ]; then
             exit 1
@@ -99,23 +116,45 @@ jobs:
           pytest api/tests/ -v --tb=short
 
   # ---------------------------------------------------------------------
-  # 2. Infrastructure Provisioning (Terraform)
+  # 2. Detect infra changes
   # ---------------------------------------------------------------------
-  provision-infra:
-    name: Provision Infrastructure (Terraform)
-    needs: build-and-test
+  detect-changes:
+    name: Detect Changed Paths
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
     permissions:
       contents: read
-      id-token: write
     outputs:
-      storage_account_name: ${{ steps.tf-outputs.outputs.storage_account_name }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
+
+      - name: Check paths filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            infra:
+              - 'infra/**'
+
+  # ---------------------------------------------------------------------
+  # 3. Infrastructure Provisioning (Terraform)
+  # ---------------------------------------------------------------------
+  provision-infra:
+    name: Provision Infrastructure (Terraform)
+    needs: [build-and-test, detect-changes]
+    if: needs.detect-changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v2
@@ -128,66 +167,47 @@ jobs:
           terraform_wrapper: false
 
       - name: Extract ARM Credentials
-        id: arm-creds
         run: |
           set -euo pipefail
-          # Parse AZURE_CREDENTIALS JSON and export as ARM_ env vars for Terraform.
-          # Values are masked by GitHub Actions secrets mechanism.
           CREDS='${{ secrets.AZURE_CREDENTIALS }}'
           echo "ARM_CLIENT_ID=$(echo "$CREDS" | jq -r .clientId)" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$(echo "$CREDS" | jq -r .clientSecret)" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=$(echo "$CREDS" | jq -r .subscriptionId)" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=$(echo "$CREDS" | jq -r .tenantId)" >> $GITHUB_ENV
 
-      - name: Terraform Init
+      - name: Terraform Init (Remote Backend)
         working-directory: ./infra
         run: |
           terraform init \
             -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
             -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=azure-aks-devops-pipeline.tfstate"
+            -backend-config="key=azure-aks-devops-pipeline.tfstate" \
+            -input=false
 
-      - name: Check for infra changes
-        id: check-infra
+      - name: Terraform Validate
         working-directory: ./infra
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Triggered manually via workflow_dispatch."
-          elif git diff --name-only HEAD~1 HEAD | grep -q '^infra/'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Changes detected in infra/ folder."
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "No changes detected in infra/ folder."
-          fi
+        run: terraform validate
 
       - name: Terraform Apply
-        if: steps.check-infra.outputs.changed == 'true'
         working-directory: ./infra
         run: |
           set -euo pipefail
           terraform apply -auto-approve \
             -var="aks_name=${{ secrets.AKS_CLUSTER_NAME }}" \
             -var="resource_group_name=${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            -var="acr_name=${{ secrets.ACR_NAME }}"
-
-      - name: Get Terraform Outputs
-        if: steps.check-infra.outputs.changed == 'true'
-        id: tf-outputs
-        working-directory: ./infra
-        run: |
-          set -euo pipefail
-          echo "storage_account_name=$(terraform output -raw storage_account_name)" >> $GITHUB_OUTPUT
+            -var="acr_name=${{ secrets.ACR_NAME }}" \
+            -var="storage_account_name=${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" \
+            -input=false
 
   # ---------------------------------------------------------------------
-  # 3. Docker Build & Push
+  # 4. Docker Build & Push
   # ---------------------------------------------------------------------
   docker-build:
     name: Docker Build & Push to ACR
-    needs: [provision-infra]
+    needs: [build-and-test, detect-changes, provision-infra]
+    # Always run if build passes — provision-infra may be skipped when no infra changes
+    if: always() && needs.build-and-test.result == 'success' && (needs.provision-infra.result == 'success' || needs.provision-infra.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -233,11 +253,11 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------------
-  # 4. Configuration & Deployment (Ansible + K8s)
+  # 5. Configuration & Deployment (Ansible + K8s)
   # ---------------------------------------------------------------------
   deploy-app:
     name: Deploy Application (Ansible)
-    needs: [docker-build, provision-infra]
+    needs: [docker-build]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -282,18 +302,12 @@ jobs:
         id: get-storage-key
         run: |
           set -euo pipefail
-          STORAGE_ACCOUNT_NAME=$(az storage account list -g ${{ secrets.AZURE_RESOURCE_GROUP }} --query "[?starts_with(name, 'fastapi')].name" -o tsv | head -n 1)
-          if [ -z "$STORAGE_ACCOUNT_NAME" ]; then
-            echo "::error::No storage account found matching 'fastapi*' in resource group."
-            exit 1
-          fi
           STORAGE_KEY=$(az storage account keys list \
             -g ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            -n $STORAGE_ACCOUNT_NAME \
+            -n ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }} \
             --query '[0].value' -o tsv)
           echo "::add-mask::$STORAGE_KEY"
           echo "key=$STORAGE_KEY" >> $GITHUB_OUTPUT
-          echo "account=$STORAGE_ACCOUNT_NAME" >> $GITHUB_OUTPUT
 
       - name: Create Azure Storage Secret
         uses: azure/k8s-create-secret@v4
@@ -303,7 +317,7 @@ jobs:
           secret-name: azure-secret
           string-data: |-
             {
-              "azurestorageaccountname": "${{ steps.get-storage-key.outputs.account }}",
+              "azurestorageaccountname": "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}",
               "azurestorageaccountkey": "${{ steps.get-storage-key.outputs.key }}"
             }
 
@@ -327,7 +341,7 @@ jobs:
           kubectl rollout status deployment/fastapi-worker -n ${{ env.NAMESPACE }} --timeout=120s
 
   # ---------------------------------------------------------------------
-  # 5. Post-Deploy Smoke Tests
+  # 6. Post-Deploy Smoke Tests
   # ---------------------------------------------------------------------
   smoke-test:
     name: Smoke Test
@@ -371,6 +385,8 @@ jobs:
           kubectl logs statefulset/postgres -n ${{ env.NAMESPACE }} --tail=20 || echo "No logs available"
 
       - name: Verify Endpoint
+        env:
+          NAMESPACE: ${{ env.NAMESPACE }}
         run: |
           set -euo pipefail
 
@@ -404,5 +420,3 @@ jobs:
             "http://$EXTERNAL_IP/"
 
           echo "Smoke test passed!"
-        env:
-          NAMESPACE: ${{ env.NAMESPACE }}

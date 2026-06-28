@@ -1,7 +1,11 @@
-# Example variables for local testing
-resource_group_name = "azure-aks-devops-rg"
-location = "southeastasia"
-aks_name = "azure-aks-devops-cluster"
-acr_name = "fahimaksdevopsacr"
-node_vm_size = "Standard_B2s_v2"
-node_count = 1
+# Example variables for local development / testing
+# Copy to terraform.tfvars and fill in your own values.
+# Do NOT commit terraform.tfvars — it is .gitignored.
+
+resource_group_name  = "azure-aks-devops-rg"
+location             = "southeastasia"
+aks_name             = "azure-aks-devops-cluster"
+acr_name             = "fahimaksdevopsacr"
+node_vm_size         = "Standard_B2s_v2"
+node_count           = 1
+storage_account_name = "fastapiaksstore"  # Must be globally unique, 3-24 lowercase alphanumeric chars

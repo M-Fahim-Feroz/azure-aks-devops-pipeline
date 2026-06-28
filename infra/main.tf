@@ -78,7 +78,7 @@ resource "azurerm_role_assignment" "aks_acr_pull" {
 # Storage Account
 # -------------------------------
 resource "azurerm_storage_account" "storage" {
-  name                     = "fastapi${substr(md5(azurerm_resource_group.rg.id), 0, 8)}"
+  name                     = var.storage_account_name
   resource_group_name      = azurerm_resource_group.rg.name
   location                 = azurerm_resource_group.rg.location
   account_tier             = "Standard"

@@ -15,6 +15,7 @@ Key highlights:
 - **Ansible-driven Kubernetes deployment** including Helm-based monitoring stack
 - **Live smoke test** validates the public FastAPI endpoint at the end of every run
 - **kube-prometheus-stack** provides cluster-wide Prometheus metrics and Grafana dashboards
+- **Azure Storage remote backend** for Terraform state — idempotent and safe on repeated runs
 
 ---
 
@@ -29,7 +30,7 @@ GitHub Actions CI/CD
         ├─ 1. Secret Validation (preflight check)
         ├─ 2. Build & Test (lint, security scan, unit tests)
         │
-        ├─ 3. Terraform Provision
+        ├─ 3. Terraform Provision  ← only when infra/** changes or workflow_dispatch
         │      └─ Azure Resource Group
         │      └─ Azure Virtual Network / Subnet
         │      └─ Azure Container Registry (ACR)
@@ -80,10 +81,11 @@ The `.github/workflows/aks-cicd.yml` workflow runs on every push to `main`.
 | # | Job | Description |
 |---|---|---|
 | 1 | `build-and-test` | Secret preflight validation, Python lint (Flake8), security scan (Bandit), unit tests (Pytest) |
-| 2 | `provision-infra` | Azure Login, Terraform Init, Terraform Apply — provisions AKS, ACR, VNet, Storage |
-| 3 | `docker-build` | ACR login, multi-stage Docker build, push `api` and `worker` images with commit-SHA tags |
-| 4 | `deploy-app` | Set AKS context, fetch storage key, create Kubernetes secrets, run Ansible playbook, force-restart deployments |
-| 5 | `smoke-test` | Wait for pods, retrieve LoadBalancer IP, curl endpoint, validate JSON response |
+| 2 | `detect-changes` | Uses `dorny/paths-filter@v3` to detect whether `infra/**` changed |
+| 3 | `provision-infra` | Azure Login, Terraform Init (remote backend), Terraform Apply — only runs when infra changes or `workflow_dispatch` |
+| 4 | `docker-build` | ACR login, multi-stage Docker build, push `api` and `worker` images with commit-SHA tags |
+| 5 | `deploy-app` | Set AKS context, fetch storage key, create Kubernetes secrets, run Ansible playbook, force-restart deployments |
+| 6 | `smoke-test` | Wait for pods, retrieve LoadBalancer IP, curl endpoint, validate JSON response |
 
 All credentials are stored as **GitHub Actions repository secrets** and are never logged or committed.
 
@@ -96,7 +98,7 @@ Terraform (`infra/`) provisions the following on Azure (Southeast Asia region):
 - **Resource Group:** `azure-aks-devops-rg`
 - **Virtual Network:** `fastapi-vnet` with node subnet
 - **Azure Container Registry:** `fahimaksdevopsacr` (ACR with AcrPull role on AKS)
-- **AKS Cluster:** `azure-aks-devops-cluster` — Kubernetes v1.34.8, single node pool
+- **AKS Cluster:** `azure-aks-devops-cluster` — single node pool, OIDC + Workload Identity enabled
 - **Azure Storage Account:** with file share mounted for PostgreSQL persistent storage
 
 ---
@@ -127,24 +129,20 @@ Ansible (`ansible/playbook.yaml`) is used in the `deploy-app` stage to:
 4. Install the `kube-prometheus-stack` Helm chart into the `monitoring` namespace
 5. Verify running pods after deployment
 
-The Ansible playbook PLAY RECAP confirms: `ok=8, changed=4, failed=0`.
-
-See: [06-github-actions-ansible-playbook-success.png](docs/screenshots/06-github-actions-ansible-playbook-success.png)
-
 ---
 
 ## Monitoring and Observability
 
 The **kube-prometheus-stack** is installed via Helm into the `monitoring` namespace:
 
-- **Prometheus** scrapes metrics from all cluster targets (Grafana, Alertmanager, API server, kubelet, node-exporter) — all reporting **UP**
+- **Prometheus** scrapes metrics from all cluster targets
 - **Grafana** provides pre-built dashboards for cluster compute resources, namespace-level pods, node metrics, kubelet, and node exporter
-- FastAPI pod CPU and memory metrics are visible in the Grafana **Namespace (Pods)** dashboard filtered to the `fastapi` namespace
+- FastAPI pod CPU and memory metrics are visible in the Grafana **Namespace (Pods)** dashboard
 
 Access Grafana locally:
 ```bash
 kubectl port-forward svc/monitoring-grafana -n monitoring 3000:80
-# Open http://localhost:3000  (login: admin / admin)
+# Open http://localhost:3000  (login: admin / your-GRAFANA_ADMIN_PASSWORD)
 ```
 
 ---
@@ -230,44 +228,177 @@ docker compose down -v
 
 ## Required GitHub Secrets
 
-Configure these secrets in your GitHub repo under **Settings → Secrets and variables → Actions**:
+> [!IMPORTANT]
+> Configure ALL of these secrets in your GitHub repo under **Settings → Secrets and variables → Actions** before triggering the workflow. Missing secrets will cause the pipeline to fail with a clear error message identifying which secret is missing.
 
-| Secret | Description |
-|---|---|
-| `AZURE_CREDENTIALS` | Azure Service Principal JSON (clientId, clientSecret, subscriptionId, tenantId) |
-| `AZURE_RESOURCE_GROUP` | Azure resource group name |
-| `AKS_CLUSTER_NAME` | AKS cluster name |
-| `ACR_NAME` | Azure Container Registry name (without `.azurecr.io`) |
-| `ACR_LOGIN_SERVER` | ACR login server (e.g. `yourname.azurecr.io`) |
-| `POSTGRES_DB` | PostgreSQL database name |
-| `POSTGRES_USER` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | PostgreSQL password |
-| `WEATHER_API_KEY` | Weather API key (use `demo` for testing) |
+| Secret | Required | Description |
+|---|---|---|
+| `AZURE_CREDENTIALS` | Yes | Azure Service Principal JSON (`clientId`, `clientSecret`, `subscriptionId`, `tenantId`) |
+| `AZURE_RESOURCE_GROUP` | Yes | Azure resource group name for the application (e.g. `azure-aks-devops-rg`) |
+| `AKS_CLUSTER_NAME` | Yes | AKS cluster name (e.g. `azure-aks-devops-cluster`) |
+| `ACR_NAME` | Yes | ACR name without `.azurecr.io` — set to: `fahimaksdevopsacr` |
+| `ACR_LOGIN_SERVER` | Yes | ACR login server — set to: `fahimaksdevopsacr.azurecr.io` |
+| `POSTGRES_DB` | Yes | PostgreSQL database name |
+| `POSTGRES_USER` | Yes | PostgreSQL username |
+| `POSTGRES_PASSWORD` | Yes | PostgreSQL password |
+| `WEATHER_API_KEY` | Yes | Weather API key (use `demo` for testing) |
+| `GRAFANA_ADMIN_PASSWORD` | Yes | Grafana admin password for the monitoring stack |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Yes | Azure Storage Account name used for PostgreSQL file share (e.g. `fastapiaksstore`) |
+| `TF_STATE_RG` | Yes | Resource Group containing the Terraform remote state storage account (e.g. `terraform-state-rg`) |
+| `TF_STATE_STORAGE_ACCOUNT` | Yes | Azure Storage Account for Terraform remote state (e.g. `tfstate12345678`) |
 
-> Do not commit secret values. Storage account keys are fetched dynamically from Azure during the pipeline run.
-
----
-
-## Deployment Notes
-
-- Deployed on **Azure for Students** subscription
-- Region: **Southeast Asia**
-- AKS used a **single demo node** (Standard_DS2_v2)
-- Terraform state is managed locally within GitHub Actions (not committed)
-- For production use, configure a **remote Terraform backend** (e.g. Azure Storage with state locking)
-- This demo uses local Terraform state in GitHub Actions. Failed partial runs may require manual Azure resource group cleanup before re-running: `az group delete --name azure-aks-devops-rg --yes --no-wait`
+> [!NOTE]
+> `TF_STATE_RG` and `TF_STATE_STORAGE_ACCOUNT` are required for `terraform init` to connect to the Azure Storage remote backend. Create them by following the **Terraform Remote State Setup** guide below.
 
 ---
 
-## Cleanup
+## Terraform Remote State Setup
 
-> [!CAUTION]
-> This project provisions real Azure resources (AKS, ACR, LoadBalancers, Storage) which incur cost. Always destroy infrastructure after testing.
+> [!IMPORTANT]
+> This is a **one-time setup** that must be completed before the GitHub Actions pipeline can run Terraform. The remote backend stores Terraform state in Azure Blob Storage so that state persists across pipeline runs and is not lost when runners restart.
+
+### Step 1: Create the Backend Storage Account
+
+Run these commands from your local machine (requires `az login`):
 
 ```bash
-# Delete all Azure resources (recommended)
-az group delete --name azure-aks-devops-rg --yes --no-wait
+# Choose a unique name for the Terraform state storage account (3-24 lowercase alphanumeric chars)
+TF_STATE_RG="terraform-state-rg"
+TF_STATE_SA="tfstate$(openssl rand -hex 4)"   # e.g. tfstate3a7f2b9c
+TF_STATE_CONTAINER="tfstate"
+
+# Create resource group for Terraform state (separate from app RG)
+az group create --name "$TF_STATE_RG" --location southeastasia
+
+# Create storage account
+az storage account create \
+  --name "$TF_STATE_SA" \
+  --resource-group "$TF_STATE_RG" \
+  --sku Standard_LRS \
+  --encryption-services blob \
+  --allow-blob-public-access false
+
+# Create the blob container
+az storage container create \
+  --name "$TF_STATE_CONTAINER" \
+  --account-name "$TF_STATE_SA"
+
+echo "TF_STATE_RG=$TF_STATE_RG"
+echo "TF_STATE_STORAGE_ACCOUNT=$TF_STATE_SA"
 ```
+
+### Step 2: Add GitHub Secrets
+
+Add the following two secrets to your GitHub repository:
+- `TF_STATE_RG` = value of `$TF_STATE_RG` (e.g. `terraform-state-rg`)
+- `TF_STATE_STORAGE_ACCOUNT` = value of `$TF_STATE_SA` (e.g. `tfstate3a7f2b9c`)
+
+### Step 3: Initialize Terraform with the Remote Backend (Local)
+
+```bash
+cd infra/
+
+# Export credentials
+export ARM_CLIENT_ID="<from AZURE_CREDENTIALS clientId>"
+export ARM_CLIENT_SECRET="<from AZURE_CREDENTIALS clientSecret>"
+export ARM_SUBSCRIPTION_ID="<from AZURE_CREDENTIALS subscriptionId>"
+export ARM_TENANT_ID="<from AZURE_CREDENTIALS tenantId>"
+
+terraform init \
+  -backend-config="resource_group_name=terraform-state-rg" \
+  -backend-config="storage_account_name=<TF_STATE_STORAGE_ACCOUNT>" \
+  -backend-config="container_name=tfstate" \
+  -backend-config="key=azure-aks-devops-pipeline.tfstate" \
+  -input=false
+```
+
+### Step 4: Import Existing Azure Resources into Remote State
+
+If your infrastructure already exists in Azure, import it so Terraform won't try to recreate it:
+
+```bash
+# Set your values
+SUBSCRIPTION_ID="<SUBSCRIPTION_ID>"
+RESOURCE_GROUP="<RESOURCE_GROUP_NAME>"    # e.g. azure-aks-devops-rg
+ACR_NAME="<ACR_NAME>"                      # e.g. fahimaksdevopsacr
+AKS_NAME="<AKS_CLUSTER_NAME>"             # e.g. azure-aks-devops-cluster
+STORAGE_ACCOUNT="<STORAGE_ACCOUNT_NAME>"  # e.g. fastapiaksstore
+
+# 1. Resource Group
+terraform import azurerm_resource_group.rg \
+  "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}"
+
+# 2. Virtual Network
+terraform import azurerm_virtual_network.vnet \
+  "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Network/virtualNetworks/fastapi-vnet"
+
+# 3. Subnet
+terraform import azurerm_subnet.subnet \
+  "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Network/virtualNetworks/fastapi-vnet/subnets/fastapi-subnet"
+
+# 4. Container Registry
+terraform import azurerm_container_registry.acr \
+  "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}"
+
+# 5. AKS Cluster
+terraform import azurerm_kubernetes_cluster.aks \
+  "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.ContainerService/managedClusters/${AKS_NAME}"
+
+# 6. Storage Account
+terraform import azurerm_storage_account.storage \
+  "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${STORAGE_ACCOUNT}"
+
+# 7. File Share
+terraform import azurerm_storage_share.postgres_share \
+  "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${STORAGE_ACCOUNT}/fileServices/default/shares/postgres-data"
+
+# 8. AKS-to-ACR role assignment (get the role assignment ID first)
+ROLE_ASSIGNMENT_ID=$(az role assignment list \
+  --scope "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}" \
+  --role "AcrPull" \
+  --query "[0].id" -o tsv)
+terraform import azurerm_role_assignment.aks_acr_pull "$ROLE_ASSIGNMENT_ID"
+```
+
+### Step 5: Verify — Run terraform plan
+
+```bash
+terraform plan \
+  -var="aks_name=<AKS_CLUSTER_NAME>" \
+  -var="resource_group_name=<RESOURCE_GROUP_NAME>" \
+  -var="acr_name=<ACR_NAME>" \
+  -var="storage_account_name=<STORAGE_ACCOUNT_NAME>"
+```
+
+> [!IMPORTANT]
+> The expected output should be **`No changes. Your infrastructure matches the configuration.`**  
+> If you see any destructive changes (`-/+` or `-`), **do not apply** and investigate the diff before proceeding.
+
+---
+
+## Troubleshooting
+
+### `TF_STATE_RG is missing`
+Create the secret in GitHub Repository → Settings → Secrets and variables → Actions. See [Terraform Remote State Setup](#terraform-remote-state-setup) above.
+
+### `TF_STATE_STORAGE_ACCOUNT is missing`
+Same as above. This is the storage account that holds your `terraform.tfstate` blob.
+
+### `AZURE_STORAGE_ACCOUNT_NAME is missing`
+This is the application storage account for the PostgreSQL Azure Files persistent volume (separate from the Terraform state storage account). Set it to the name of the storage account in your app resource group (e.g. `fastapiaksstore`).
+
+### Terraform wants to recreate existing resources
+This means existing resources are not in the Terraform state file. Run the import commands in [Step 4](#step-4-import-existing-azure-resources-into-remote-state) above.
+
+### ACR name mismatch
+Ensure the GitHub secret `ACR_NAME` is set to `fahimaksdevopsacr` and `ACR_LOGIN_SERVER` is set to `fahimaksdevopsacr.azurecr.io`.
+
+### Terraform init asks for input interactively
+All `terraform init` and `terraform apply` calls use `-input=false`. If you see an interactive prompt, ensure all `-backend-config` values are being passed correctly.
+
+---
+
+## Local Setup
 
 ---
 
@@ -279,6 +410,21 @@ az group delete --name azure-aks-devops-rg --yes --no-wait
 - All credentials are managed through GitHub Actions repository secrets
 - Screenshots containing passwords or credentials are not committed (excluded to `docs/screenshots/_excluded/`)
 - Azure resources should be destroyed after demo use to avoid exposure of public IPs
+
+---
+
+## Cleanup
+
+> [!CAUTION]
+> This project provisions real Azure resources (AKS, ACR, LoadBalancers, Storage) which incur cost. Always destroy infrastructure after testing.
+
+```bash
+# Delete all application Azure resources
+az group delete --name azure-aks-devops-rg --yes --no-wait
+
+# Optionally also delete the Terraform state storage
+az group delete --name terraform-state-rg --yes --no-wait
+```
 
 ---
 
