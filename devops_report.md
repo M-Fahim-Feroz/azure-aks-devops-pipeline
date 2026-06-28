@@ -1,6 +1,6 @@
-# DevOps Report
+﻿# DevOps Report
 
-> **Deployment Status:** ✅ End-to-end deployment successfully completed through GitHub Actions.
+> **Deployment Status:**  End-to-end deployment successfully completed through GitHub Actions.
 > All 5 pipeline jobs passed. FastAPI public endpoint responded with `{"status":"ok"}`.
 > Prometheus/Grafana monitoring stack confirmed operational. Deployment proof in `docs/screenshots/`.
 

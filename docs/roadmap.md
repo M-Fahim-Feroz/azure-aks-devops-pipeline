@@ -1,4 +1,4 @@
-# Roadmap
+﻿# Roadmap
 
 Planned improvements for the Azure AKS DevOps Pipeline project.
 
@@ -7,7 +7,7 @@ These are tracked as GitHub Issues in `docs/github-issues.md`.
 ## Near-Term (v1.1)
 
 - [ ] **[Security]** Migrate Azure authentication from Service Principal JSON to GitHub OIDC federated credentials — eliminates long-lived secrets
-- [ ] **[Security]** Add dedicated `GRAFANA_ADMIN_PASSWORD` secret separate from PostgreSQL password ✅ (completed)
+- [ ] **[Security]** Add dedicated `GRAFANA_ADMIN_PASSWORD` secret separate from PostgreSQL password  (completed)
 - [ ] **[CI]** Add pytest-cov coverage reporting to build-and-test job
 - [ ] **[CI]** Upload test coverage report as GitHub Actions artifact
 - [ ] **[Terraform]** Move Terraform state from local GitHub Actions runner to Azure Storage remote backend with state locking

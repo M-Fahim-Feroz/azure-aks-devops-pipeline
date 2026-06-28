@@ -1,8 +1,8 @@
-# Azure Deployment Guide
+﻿# Azure Deployment Guide
 
 Complete step-by-step guide to deploy this Azure AKS DevOps pipeline project.
 
-> **Deployment Status:** ✅ Successfully deployed and validated through GitHub Actions.
+> **Deployment Status:**  Successfully deployed and validated through GitHub Actions.
 > FastAPI endpoint responded with `{"status":"ok"}`. Prometheus/Grafana monitoring stack confirmed UP.
 > Screenshots are stored under `docs/screenshots/`.
 
@@ -94,12 +94,12 @@ git push origin main
 
 ### What the pipeline does automatically
 
-1. ✅ **Secret validation** — preflight check for all 9 required secrets
-2. ✅ **Build & Test** — Flake8 lint, Bandit security scan, Pytest unit tests
-3. ✅ **Terraform Apply** — provisions Resource Group, VNet, AKS, ACR, Storage Account
-4. ✅ **Docker Build** — builds and pushes `api` and `worker` images to ACR
-5. ✅ **Ansible Deploy** — creates Kubernetes secrets, applies manifests, installs Prometheus/Grafana via Helm
-6. ✅ **Smoke Test** — verifies the public FastAPI endpoint returns the expected JSON response
+1.  **Secret validation** — preflight check for all 9 required secrets
+2.  **Build & Test** — Flake8 lint, Bandit security scan, Pytest unit tests
+3.  **Terraform Apply** — provisions Resource Group, VNet, AKS, ACR, Storage Account
+4.  **Docker Build** — builds and pushes `api` and `worker` images to ACR
+5.  **Ansible Deploy** — creates Kubernetes secrets, applies manifests, installs Prometheus/Grafana via Helm
+6.  **Smoke Test** — verifies the public FastAPI endpoint returns the expected JSON response
 
 ---
 
