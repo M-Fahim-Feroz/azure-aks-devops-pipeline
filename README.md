@@ -2,7 +2,7 @@
 
 A production-style, end-to-end DevOps portfolio project that provisions Azure infrastructure with Terraform, builds and pushes Docker images to ACR, deploys a FastAPI microservice stack to Azure Kubernetes Service, automates deployment with Ansible, and validates the rollout through a fully automated GitHub Actions pipeline with Prometheus and Grafana observability.
 
-> **Deployment Status:** ✅ Successfully deployed and smoke-tested. Public FastAPI endpoint returned `{"status":"ok"}`.
+> **Deployment Status:**  Successfully deployed and smoke-tested. Public FastAPI endpoint returned `{"status":"ok"}`.
 
 ---
 
