@@ -48,4 +48,8 @@ yarn-error.log
 .vscode/
 .idea/
 .DS_Store
-Thumbs.db
+Thumbs.db
+# Logs and Databases
+*.log
+*.db
+*.sqlite3
