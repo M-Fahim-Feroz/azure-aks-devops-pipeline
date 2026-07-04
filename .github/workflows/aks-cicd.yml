@@ -292,7 +292,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Set AKS Context
-        uses: azure/aks-set-context@v4
+        uses: azure/aks-set-context@v5
         with:
           cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
           resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
@@ -377,7 +377,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Set AKS Context
-        uses: azure/aks-set-context@v4
+        uses: azure/aks-set-context@v5
         with:
           cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
           resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
