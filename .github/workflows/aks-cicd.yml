@@ -301,7 +301,7 @@ jobs:
         run: kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Update Kubernetes Secrets
-        uses: azure/k8s-create-secret@v4
+        uses: azure/k8s-create-secret@v6
         with:
           namespace: ${{ env.NAMESPACE }}
           secret-type: 'generic'
@@ -329,7 +329,7 @@ jobs:
           echo "key=$STORAGE_KEY" >> $GITHUB_OUTPUT
 
       - name: Create Azure Storage Secret
-        uses: azure/k8s-create-secret@v4
+        uses: azure/k8s-create-secret@v6
         with:
           namespace: ${{ env.NAMESPACE }}
           secret-type: 'generic'
